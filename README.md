@@ -41,10 +41,13 @@ Prerequisites already on this machine: `claude` (Claude Code CLI, logged in), `a
   repository's design docs into the wiki, lint, ask questions. Jobs stream live.
 - **Workflows**: edit `workflow.yaml` and the role prompts in `~/.claude/software-factory/workflows`.
   See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for the design and the discussion points.
+- **Sessions**: every Claude session the factory runs (workflow roles, brain jobs, chats) with live transcripts,
+  plus the Claude Code history on this machine; start a free chat in any project or worktree, or resume an old one.
 - **Requests**: questions and permission prompts from running agents; the card shows an orange badge.
 - **System**: CPU, memory, disks, network, top processes, Claude processes.
-- **Settings**: integration status and `config.yaml` (projects, base branches, design docs, vault and
-  ADO mapping, Jira status → column mapping).
+- **Settings**: integration status, AI usage (Claude plan windows as reported during sessions, factory
+  sessions/cost/tokens per period, Fathom and Jira activity) and `config.yaml` (projects, base branches, design docs,
+  vault and ADO mapping, Jira status → column mapping, default workflow).
 
 ## Layout
 

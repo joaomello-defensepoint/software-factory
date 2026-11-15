@@ -98,6 +98,43 @@ function migrate(d: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_notes_card ON notes(card_id, ts);
 
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'claude',
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      model TEXT,
+      card_id TEXT,
+      run_id TEXT,
+      role TEXT,
+      step TEXT,
+      claude_session_id TEXT,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      turns INTEGER NOT NULL DEFAULT 0,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      last_text TEXT,
+      interactive INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+    CREATE INDEX IF NOT EXISTS idx_sessions_run ON sessions(run_id);
+
+    CREATE TABLE IF NOT EXISTS session_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      ts TEXT NOT NULL,
+      type TEXT NOT NULL,
+      text TEXT NOT NULL,
+      data TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_messages ON session_messages(session_id, id);
+
     CREATE TABLE IF NOT EXISTS kv (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -119,6 +156,17 @@ export function kvSet(key: string, value: unknown): void {
   getDb()
     .prepare('INSERT INTO kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
     .run(key, JSON.stringify(value));
+}
+
+export function kvList<T>(prefix: string): Array<{ key: string; value: T }> {
+  const rows = getDb().prepare('SELECT key, value FROM kv WHERE key LIKE ?').all(`${prefix}%`) as Array<{ key: string; value: string }>;
+  return rows.flatMap((r) => {
+    try {
+      return [{ key: r.key, value: JSON.parse(r.value) as T }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 export const nowIso = (): string => new Date().toISOString();

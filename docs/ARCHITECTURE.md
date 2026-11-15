@@ -20,7 +20,8 @@ State lives outside the repo so it survives re-clones: `~/.claude/software-facto
 | `services/fathom.ts`                 | Fathom: MCP mode (Fathom connector) by default, public API with a key optionally |
 | `services/ado.ts`                    | Azure DevOps PRs through the `az` CLI                                           |
 | `services/brain.ts`                  | second-brain vaults: pages, Fathom ingest, repo indexing, lint, query (jobs)    |
-| `services/claude.ts`                 | one headless Claude Code session via the Agent SDK                              |
+| `services/claude.ts`                 | one headless Claude Code session via the Agent SDK; registers it in the session registry |
+| `services/sessions.ts`               | session registry + transcripts, interactive chats (streaming input), on-disk Claude Code history, usage/plan-limit capture |
 | `services/workflow/definitions.ts`   | YAML + role files in `~/.claude/software-factory/workflows`                     |
 | `services/workflow/engine.ts`        | the maestro loop, worktree creation, diff, human-in-the-loop, tracker updates   |
 | `services/workflow/requests.ts`      | pending questions/permissions and the promises the engine awaits                |

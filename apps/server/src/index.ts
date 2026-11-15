@@ -18,6 +18,8 @@ import { seedDefaultWorkflows } from './services/workflow/definitions.js';
 import { loadConfig } from './services/projects.js';
 import { abortAllRuns } from './services/workflow/engine.js';
 import { closeLlama } from './services/llama.js';
+import { abortAllChats, failStaleSessions } from './services/sessions.js';
+import { sessionRoutes } from './routes/sessions.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -27,6 +29,7 @@ async function main(): Promise<void> {
   const stale = failStaleRuns();
   if (stale) logger.warn(`${stale} run(s) were interrupted by a previous shutdown and marked failed`);
   dismissOrphanRequests();
+  failStaleSessions();
 
   const app = Fastify({ logger: false });
   await app.register(cors, { origin: true });
@@ -44,6 +47,7 @@ async function main(): Promise<void> {
   await app.register(cardRoutes);
   await app.register(wsRoutes);
   await registerIntegrations(app);
+  await app.register(sessionRoutes);
 
   app.get('/api/health', async () => ({ ok: true, home: SF_HOME, ts: new Date().toISOString() }));
 
@@ -64,7 +68,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    const aborted = abortAllRuns();
+    const aborted = abortAllRuns() + abortAllChats();
     logger.info(`${signal}: shutting down${aborted ? ` (aborting ${aborted} running workflow session(s))` : ''}`);
     await closeLlama().catch(() => undefined);
     await app.close().catch(() => undefined);

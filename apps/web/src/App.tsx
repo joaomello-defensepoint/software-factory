@@ -7,6 +7,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import SettingsIcon from '@mui/icons-material/Settings';
+import TerminalIcon from '@mui/icons-material/Terminal';
 import type { HumanRequest, ServerEvent } from '@sf/shared';
 import { api } from './api/client';
 import { useConnection, useServerEvents } from './api/ws';
@@ -16,16 +17,18 @@ import { WorkflowsPage } from './pages/WorkflowsPage';
 import { RequestsPage } from './pages/RequestsPage';
 import { SystemPage } from './pages/SystemPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SessionsPage } from './pages/SessionsPage';
 import { formatBytes } from './components/common/format';
 
-const TABS = ['board', 'brain', 'workflows', 'requests', 'system', 'settings'] as const;
+const TABS = ['board', 'brain', 'workflows', 'sessions', 'requests', 'system', 'settings'] as const;
 type TabId = (typeof TABS)[number];
+const tabFromHash = (): TabId => {
+  const h = location.hash.replace('#', '').split(/[/?]/)[0] as TabId;
+  return TABS.includes(h) ? h : 'board';
+};
 
 export function App() {
-  const [tab, setTab] = useState<TabId>(() => {
-    const h = location.hash.replace('#', '') as TabId;
-    return TABS.includes(h) ? h : 'board';
-  });
+  const [tab, setTab] = useState<TabId>(tabFromHash);
   const [toast, setToast] = useState<{ level: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
   const { connected, stats } = useConnection();
   const pending = useQuery({ queryKey: ['requests', 'pending'], queryFn: () => api.get<HumanRequest[]>('/api/requests?status=pending'), refetchInterval: 15_000 });
@@ -36,13 +39,10 @@ export function App() {
   });
 
   useEffect(() => {
-    if (location.hash.replace('#', '') !== tab) location.hash = tab;
+    if (tabFromHash() !== tab) location.hash = tab;
   }, [tab]);
   useEffect(() => {
-    const onHash = () => {
-      const h = location.hash.replace('#', '') as TabId;
-      if (TABS.includes(h)) setTab(h);
-    };
+    const onHash = () => setTab(tabFromHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -60,6 +60,7 @@ export function App() {
             <Tab value="board" icon={<ViewKanbanIcon fontSize="small" />} iconPosition="start" label="Board" />
             <Tab value="brain" icon={<PsychologyIcon fontSize="small" />} iconPosition="start" label="Second Brain" />
             <Tab value="workflows" icon={<AccountTreeIcon fontSize="small" />} iconPosition="start" label="Workflows" />
+            <Tab value="sessions" icon={<TerminalIcon fontSize="small" />} iconPosition="start" label="Sessions" />
             <Tab
               value="requests"
               icon={
@@ -95,6 +96,7 @@ export function App() {
         {tab === 'board' && <BoardPage />}
         {tab === 'brain' && <SecondBrainPage />}
         {tab === 'workflows' && <WorkflowsPage />}
+        {tab === 'sessions' && <SessionsPage />}
         {tab === 'requests' && <RequestsPage />}
         {tab === 'system' && <SystemPage />}
         {tab === 'settings' && <SettingsPage />}

@@ -201,6 +201,9 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                   {latest.workflowId} · iteration {latest.iteration}{latest.currentStep ? ` · step ${latest.currentStep}` : ''} · ≈ ${latest.costUsd.toFixed(2)} · started {timeAgo(latest.startedAt)}
                 </Typography>
                 <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={() => { location.hash = `sessions?card=${card.id}`; onClose(); }}>
+                  View sessions
+                </Button>
                 {latest.active && (
                   <Button color="error" variant="outlined" onClick={() => cancel.mutate(latest.id)}>
                     Cancel run

@@ -3,8 +3,105 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
 import CodeMirror from '@uiw/react-codemirror';
 import { yaml } from '@codemirror/lang-yaml';
-import type { IntegrationStatus, Project } from '@sf/shared';
+import type { IntegrationStatus, Project, UsageReport } from '@sf/shared';
 import { api } from '../api/client';
+import { LinearProgress, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
+import { timeAgo } from '../components/common/format';
+
+const limitLabel: Record<string, string> = { five_hour: 'Current session (5-hour window)', seven_day: 'Weekly (all models)', seven_day_opus: 'Weekly (Opus)', seven_day_sonnet: 'Weekly (Sonnet)' };
+
+function UsageSection() {
+  const usage = useQuery({ queryKey: ['usage'], queryFn: () => api.get<UsageReport>('/api/usage'), refetchInterval: 60_000 });
+  const u = usage.data;
+  if (!u) return null;
+  const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="subtitle2" gutterBottom>
+        AI usage
+      </Typography>
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Claude plan limits {u.claude.account?.subscriptionType ? `· ${u.claude.account.subscriptionType}` : ''} {u.claude.account?.email ? `· ${u.claude.account.email}` : ''}
+          </Typography>
+          {u.claude.rateLimits.length === 0 && (
+            <Typography variant="caption" color="text.secondary">
+              No limit data observed yet. Claude reports the session and weekly windows while sessions run; they appear here after the first workflow or chat.
+            </Typography>
+          )}
+          <Stack spacing={1}>
+            {u.claude.rateLimits.map((r) => (
+              <Box key={r.type}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="body2">{limitLabel[r.type] || r.type}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {r.utilization !== null ? `${Math.round(r.utilization * (r.utilization <= 1 ? 100 : 1))}% used` : r.status}
+                    {r.resetsAt ? ` · resets ${new Date(r.resetsAt).toLocaleString()}` : ''} · seen {timeAgo(r.observedAt)}
+                  </Typography>
+                </Box>
+                <LinearProgress variant="determinate" value={r.utilization !== null ? Math.min(100, r.utilization * (r.utilization <= 1 ? 100 : 1)) : 0} color={r.status === 'rejected' ? 'error' : r.status === 'allowed_warning' ? 'warning' : 'primary'} sx={{ height: 8, borderRadius: 4 }} />
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Factory sessions</TableCell>
+              <TableCell align="right">Sessions</TableCell>
+              <TableCell align="right">Cost (est.)</TableCell>
+              <TableCell align="right">Input tokens</TableCell>
+              <TableCell align="right">Output tokens</TableCell>
+              <TableCell align="right">Cache read</TableCell>
+              <TableCell>By kind</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {u.periods.map((p) => (
+              <TableRow key={p.label}>
+                <TableCell>{p.label}</TableCell>
+                <TableCell align="right">{p.sessions}</TableCell>
+                <TableCell align="right">${p.costUsd.toFixed(2)}</TableCell>
+                <TableCell align="right">{fmt(p.inputTokens)}</TableCell>
+                <TableCell align="right">{fmt(p.outputTokens)}</TableCell>
+                <TableCell align="right">{fmt(p.cacheReadTokens)}</TableCell>
+                <TableCell>
+                  {Object.entries(p.byKind).map(([k, v]) => (
+                    <Chip key={k} label={`${k} ${v.sessions} · $${v.costUsd.toFixed(2)}`} size="small" variant="outlined" sx={{ mr: 0.5, height: 20 }} />
+                  ))}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>Fathom</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {u.integrations.fathomIngested} meeting(s) ingested · {u.integrations.fathomIngestedLast7Days} in the last 7 days · last {u.integrations.lastFathomIngest ? timeAgo(u.integrations.lastFathomIngest) : 'never'}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>Jira</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {u.integrations.jiraSyncs} sync(s) · last {u.integrations.jiraLastSync ? timeAgo(u.integrations.jiraLastSync) : 'never'}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>Connector calls (7 days)</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {Object.keys(u.integrations.bridgeCallsLast7Days).length ? Object.entries(u.integrations.bridgeCallsLast7Days).map(([k, v]) => `${k}: ${v}`).join(' · ') : 'none yet'}
+            </Typography>
+          </Box>
+        </Box>
+        <Typography variant="caption" color="text.secondary">
+          Workflow runs: {u.runs.total} total · {u.runs.succeeded} succeeded · {u.runs.failed} failed · {u.runs.last7Days} in the last 7 days · average ${u.runs.avgCostUsd.toFixed(2)} per run. Costs are the SDK's estimates, not billing.
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
 
 function Status({ ok, label, detail }: { ok: boolean | null; label: string; detail?: string | null }) {
   return (
@@ -73,6 +170,7 @@ export function SettingsPage() {
           <Typography color="text.secondary">Loading…</Typography>
         )}
       </Paper>
+      <UsageSection />
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" gutterBottom>
           Projects

@@ -227,6 +227,8 @@ export interface HumanRequest {
   role: string | null;
   /** "question" = the agent asked the human; "permission" = a tool call needs approval. */
   kind: 'question' | 'permission';
+  /** Set when the request comes from a free chat session instead of a workflow run. */
+  sessionId: string | null;
   toolName: string | null;
   toolInput: unknown;
   /** Raw AskUserQuestion input or a free-form question from the engine. */
@@ -246,6 +248,85 @@ export interface Note {
   text: string;
   /** Session keys ("step:role") that already received this note mid-run. */
   delivered: string[];
+}
+
+// ---------- Sessions ----------
+
+export type SessionKind = 'workflow' | 'brain' | 'bridge' | 'chat';
+export type SessionStatus = 'starting' | 'running' | 'waiting_human' | 'done' | 'failed' | 'cancelled';
+
+export interface SessionSummary {
+  id: string;
+  provider: 'claude';
+  kind: SessionKind;
+  title: string;
+  cwd: string;
+  model: string | null;
+  cardId: string | null;
+  runId: string | null;
+  role: string | null;
+  step: string | null;
+  claudeSessionId: string | null;
+  status: SessionStatus;
+  startedAt: string;
+  endedAt: string | null;
+  costUsd: number;
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  lastText: string | null;
+  /** True for chat sessions that accept new messages while live. */
+  interactive: boolean;
+}
+
+export interface SessionMessageLine {
+  id: number;
+  sessionId: string;
+  ts: string;
+  type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system' | 'question';
+  text: string;
+  data: unknown;
+}
+
+/** A Claude Code session found on disk (terminal sessions included). */
+export interface ExternalSession {
+  sessionId: string;
+  summary: string;
+  firstPrompt: string | null;
+  customTitle: string | null;
+  cwd: string | null;
+  gitBranch: string | null;
+  lastModified: string | null;
+  createdAt: string | null;
+}
+
+export interface UsagePeriod {
+  label: string;
+  sessions: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  byKind: Record<string, { sessions: number; costUsd: number }>;
+}
+
+export interface UsageReport {
+  generatedAt: string;
+  claude: {
+    account: { email?: string; organization?: string; subscriptionType?: string; apiKeySource?: string } | null;
+    rateLimits: Array<{ type: string; status: string; utilization: number | null; resetsAt: string | null; observedAt: string }>;
+  };
+  periods: UsagePeriod[];
+  integrations: {
+    fathomIngested: number;
+    fathomIngestedLast7Days: number;
+    lastFathomIngest: string | null;
+    jiraSyncs: number;
+    jiraLastSync: string | null;
+    bridgeCallsLast7Days: Record<string, number>;
+  };
+  runs: { total: number; succeeded: number; failed: number; last7Days: number; avgCostUsd: number };
 }
 
 // ---------- Second brain ----------
@@ -300,6 +381,8 @@ export type ServerEvent =
   | { type: 'request.created'; request: HumanRequest }
   | { type: 'request.answered'; request: HumanRequest }
   | { type: 'note.created'; note: Note }
+  | { type: 'session.changed'; session: SessionSummary }
+  | { type: 'session.message'; message: SessionMessageLine }
   | { type: 'system.stats'; stats: SystemStats }
   | { type: 'brain.changed'; vaultId: string }
   | { type: 'job.log'; jobId: string; line: string }

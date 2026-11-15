@@ -68,6 +68,9 @@ export function useServerEvents(listener?: Listener): void {
         case 'brain.changed':
           qc.invalidateQueries({ queryKey: ['brain'] });
           break;
+        case 'session.changed':
+          qc.invalidateQueries({ queryKey: ['sessions'] });
+          break;
         default:
           break;
       }

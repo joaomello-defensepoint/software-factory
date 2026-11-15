@@ -26,13 +26,16 @@ interface StoredQuestions {
 
 function toRequest(r: Row): HumanRequest {
   const stored = JSON.parse(r.questions) as StoredQuestions;
-  const card = getCard(r.card_id);
+  const card = r.card_id ? getCard(r.card_id) : null;
+  const sessionId = r.run_id.startsWith('session:') ? r.run_id.slice('session:'.length) : null;
+  const sessionTitle = sessionId ? (getDb().prepare('SELECT title FROM sessions WHERE id = ?').get(sessionId) as { title: string } | undefined)?.title : undefined;
   return {
     id: r.id,
     runId: r.run_id,
     cardId: r.card_id,
     cardKey: card?.key ?? null,
-    cardTitle: card?.title ?? '(card removed)',
+    cardTitle: card?.title ?? (sessionTitle ? `Session: ${sessionTitle}` : '(card removed)'),
+    sessionId,
     step: r.step,
     role: r.role,
     kind: stored.kind,

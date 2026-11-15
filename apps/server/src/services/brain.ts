@@ -139,7 +139,7 @@ export function ingestMeetingJob(vaultId: string, recordingId: string, hint: { c
     const rawPath = path.join(vault.path, 'raw', file);
     fs.mkdirSync(path.dirname(rawPath), { recursive: true });
     fs.writeFileSync(rawPath, renderMeetingExport(meeting), 'utf8');
-    kvSet(ingestedKey(recordingId), rawPath);
+    kvSet(ingestedKey(recordingId), { path: rawPath, at: new Date().toISOString(), title: meeting.title, vault: vault.id });
     log(`Saved raw transcript → raw/${file} (${meeting.transcript?.length ?? 0} lines)`);
     log('Running /second-brain-ingest in the vault…');
     const res = await runClaude({
@@ -147,6 +147,7 @@ export function ingestMeetingJob(vaultId: string, recordingId: string, hint: { c
       prompt: `/second-brain-ingest raw/${file}\n\nThis is an unattended run: do NOT pause to discuss takeaways or wait for confirmation. Complete every step (source page, entities, concepts, synthesis dashboards, index.md and log.md) and finish with a short summary of the pages you created or updated.`,
       model: 'opus',
       maxTurns: 150,
+      meta: { kind: 'brain', title: `Ingest ${meeting.title.slice(0, 50)} → ${vault.name}` },
       onText: (t) => log(t),
       onTool: (name, input) => log(`→ ${name} ${summarizeInput(input)}`),
     });
@@ -168,6 +169,7 @@ export function indexRepoJob(vaultId: string, projectId: string) {
       additionalDirectories: [project.path],
       model: 'opus',
       maxTurns: 200,
+      meta: { kind: 'brain', title: `Index ${project.name} → ${vault.name}` },
       prompt: [
         `You are maintaining this wiki (follow CLAUDE.md in this vault exactly: frontmatter, [[links]], index.md and log.md conventions).`,
         `Index the source code repository at ${project.path} (branch currently checked out) so agents working on tickets get accurate architectural context.`,
@@ -196,6 +198,7 @@ export function lintJob(vaultId: string) {
       prompt: '/second-brain-lint\n\nUnattended run: fix what is safe to fix (broken links, missing index entries, stale frontmatter), report the rest. Never ask questions.',
       model: 'opus',
       maxTurns: 120,
+      meta: { kind: 'brain', title: `Lint ${vault.name}` },
       onText: (t) => log(t),
       onTool: (name, input) => log(`→ ${name} ${summarizeInput(input)}`),
     });
@@ -214,6 +217,7 @@ export function queryJob(vaultId: string, question: string) {
       model: 'opus',
       maxTurns: 60,
       allowedTools: ['Read', 'Glob', 'Grep', 'Bash'],
+      meta: { kind: 'brain', title: `Ask ${vault.name}: ${question.slice(0, 50)}` },
       onText: (t) => log(t),
       onTool: (name, input) => log(`→ ${name} ${summarizeInput(input)}`),
     });

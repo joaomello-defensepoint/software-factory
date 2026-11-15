@@ -60,6 +60,7 @@ export async function callMcpTool(tool: string, args: Record<string, unknown>, o
       onToolResult: (_id, text, isError) => {
         slot.fallback = { text, isError };
       },
+      meta: { kind: 'bridge', title: tool },
     });
     const got = slot.captured ?? slot.fallback;
     if (got && !got.isError && got.text) return got.text;

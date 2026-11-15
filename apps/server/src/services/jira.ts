@@ -1,6 +1,6 @@
 import type { Card, ColumnId } from '@sf/shared';
 import { SF_HOME, env } from '../config.js';
-import { nowIso } from '../db.js';
+import { kvGet, kvSet, nowIso } from '../db.js';
 import { callMcpJson, callMcpTool, parseLooseJson } from './mcp.js';
 import { createCard, getCardByKey, listCards, updateCard } from './cards.js';
 import { guessProjectForKey, loadConfig } from './projects.js';
@@ -402,6 +402,8 @@ export async function syncFromJira(jql = env.jira.jql): Promise<{ imported: numb
       logger.warn({ err: String(e) }, 'refresh of known cards failed');
     }
   }
+  kvSet('jira:lastSync', nowIso());
+  kvSet('jira:syncs', kvGet<number>('jira:syncs', 0) + 1);
   hub.broadcast({ type: 'cards.changed' });
   return { imported, updated, total: issues.length };
 }

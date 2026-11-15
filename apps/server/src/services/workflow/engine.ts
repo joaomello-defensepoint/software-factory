@@ -195,6 +195,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
       canUseTool: canUseTool(step, role),
       abortController: ac,
       hooks: { PostToolUse: [{ hooks: [steeringHook as any] }] },
+      meta: { kind: 'workflow', title: `${card.key || card.title.slice(0, 40)} · ${role.name} (${step.name}, iteration ${run.iteration})`, cardId: card.id, runId, role: role.id, step: step.id },
       onInit: (info) => appendEvent(runId, 'log', `session ${info.sessionId} · model ${info.model} · ${info.skills.length} skills · mcp: ${info.mcpServers.join(', ') || 'none'}`, { step: step.id, role: role.id }),
       onText: (t) => appendEvent(runId, 'assistant_text', t.length > 4000 ? `${t.slice(0, 4000)}…` : t, { step: step.id, role: role.id }),
       onTool: (name, input, id) => appendEvent(runId, 'tool_use', `${name} ${summarizeTool(name, input)}`, { step: step.id, role: role.id, data: { id, name, input: truncate(input) } }),
