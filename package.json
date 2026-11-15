@@ -1,0 +1,28 @@
+{
+  "name": "software-factory",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local tool to run AI coding workflows across projects: Jira/Llama board, Fathom-fed second brain, maestro workflows in git worktrees, system monitor.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w apps/web",
+    "start": "npm run start -w apps/server",
+    "typecheck": "npm run typecheck -w packages/shared -w apps/server -w apps/web",
+    "test": "npm run test -w apps/server"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "typescript": "~5.9.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

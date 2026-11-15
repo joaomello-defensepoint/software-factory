@@ -1,0 +1,144 @@
+# Software Factory workflow definition.
+# Lives in ~/.claude/software-factory/workflows/<id>/ so it is yours (user-level), not the project's.
+# Roles are Claude Code agent files (frontmatter + markdown prompt) in ./roles.
+# Prompts may use {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.url}},
+# {{project.name}}, {{project.baseBranch}}, {{project.designDocs}}, {{brain}}, {{diff}}, {{diffStat}},
+# {{iteration}}, {{feedback}} and {{steps.<stepId>.output}}.
+
+id: maestro-loop
+name: Maestro loop (implement → review → devil's advocates → decide)
+description: >
+  The implementer follows the project's design docs, a reviewer checks the diff against them, two devil's advocates
+  then try to break the solution (wrong abstraction? duplication? coupling? is this even the right change?) and debate
+  each other; the maestro reads everything and decides: done, rework with precise instructions, or ask the human.
+version: 1
+defaultModel: opus
+maxIterations: 3
+
+steps:
+  - id: implement
+    name: Implement
+    kind: agent
+    roles: [implementer]
+    resumeSession: true
+    maxTurns: 200
+    prompt: |
+      {{#if feedback}}
+      ## Rework requested by the maestro (iteration {{iteration}})
+      {{feedback}}
+
+      Address every point above. Keep the existing good parts. When done, summarize what changed and why.
+      {{else}}
+      ## Ticket {{ticket.key}}: {{ticket.title}}
+      {{ticket.url}}
+
+      {{ticket.description}}
+
+      ## Project
+      {{project.name}} — base branch `{{project.baseBranch}}`. You are inside an isolated git worktree; commit nothing, the factory commits for you.
+
+      ## Design docs you MUST follow (read them before writing code)
+      {{project.designDocs}}
+
+      ## Knowledge from the second brain
+      {{brain}}
+
+      Implement the ticket end to end (code + tests + docs the project expects). Reuse existing concepts and utilities;
+      never duplicate what already exists. Run the project's build and relevant tests before finishing.
+      Finish with a concise summary: what changed, why, how to test, and anything you were unsure about.
+      {{/if}}
+
+  - id: review
+    name: Review against design docs
+    kind: agent
+    roles: [reviewer]
+    maxTurns: 80
+    outcomes: [approve, changes_requested]
+    prompt: |
+      ## Ticket {{ticket.key}}: {{ticket.title}}
+      {{ticket.description}}
+
+      ## Implementer's summary
+      {{steps.implement.output}}
+
+      ## Diff (worktree vs base branch `{{project.baseBranch}}`)
+      {{diffStat}}
+
+      ```diff
+      {{diff}}
+      ```
+
+      ## Design docs to check against
+      {{project.designDocs}}
+
+      Review the change strictly against the design docs, coding guidelines and ADRs of this project. Verify claims by
+      reading the code. Report findings with severity (blocker, major, minor, nit), file references and a concrete fix.
+
+  - id: challenge
+    name: Devil's advocates debate
+    kind: debate
+    roles: [advocate-design, advocate-correctness]
+    rounds: 1
+    maxTurns: 60
+    prompt: |
+      ## Ticket {{ticket.key}}: {{ticket.title}}
+      {{ticket.description}}
+
+      ## Implementer's summary
+      {{steps.implement.output}}
+
+      ## Reviewer's findings
+      {{steps.review.output}}
+
+      ## Diff
+      {{diffStat}}
+
+      ```diff
+      {{diff}}
+      ```
+
+      ## Design docs
+      {{project.designDocs}}
+
+      Your job is to find what the implementer and the reviewer missed. Question whether this is the right change at all,
+      whether existing concepts were reused or wrongly duplicated, whether the coupling introduced is acceptable, and
+      whether the design docs were actually honoured rather than paraphrased. Be concrete: cite files and lines.
+      Rank your concerns by how much they matter; say explicitly which ones are blocking.
+
+  - id: decide
+    name: Maestro decision
+    kind: decision
+    roles: [maestro]
+    maxTurns: 40
+    outcomes: [done, rework, ask_human]
+    prompt: |
+      ## Ticket {{ticket.key}}: {{ticket.title}}
+      {{ticket.description}}
+
+      Iteration {{iteration}} of {{maxIterations}}.
+
+      ## Implementer's summary
+      {{steps.implement.output}}
+
+      ## Reviewer
+      {{steps.review.output}}
+
+      ## Devil's advocates (debate transcript)
+      {{steps.challenge.output}}
+
+      ## Diff stat
+      {{diffStat}}
+
+      Decide. Choose `done` when the remaining concerns are nits or matters of taste; choose `rework` when there is a
+      real defect, a design-doc violation, duplication or harmful coupling — and write precise, numbered instructions
+      for the implementer (what to change, where, why; do not re-litigate accepted trade-offs). Choose `ask_human` only
+      when a product or architectural decision is genuinely the human's to make; then phrase one clear question with options.
+
+  - id: finalize
+    name: Commit in worktree
+    kind: shell
+    roles: []
+    prompt: ''
+    command: >-
+      git add -A && git -c user.name='Software Factory' -c user.email='factory@local'
+      commit -q -m "{{ticket.key}} - {{ticket.title}} (software factory)" || true
