@@ -16,6 +16,8 @@ import { failStaleRuns } from './services/workflow/runs.js';
 import { dismissOrphanRequests } from './services/workflow/requests.js';
 import { seedDefaultWorkflows } from './services/workflow/definitions.js';
 import { loadConfig } from './services/projects.js';
+import { abortAllRuns } from './services/workflow/engine.js';
+import { closeLlama } from './services/llama.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -57,6 +59,19 @@ async function main(): Promise<void> {
 
   await app.listen({ port: PORT, host: '127.0.0.1' });
   logger.info(`Software Factory server listening on http://127.0.0.1:${PORT} (state in ${SF_HOME})`);
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const aborted = abortAllRuns();
+    logger.info(`${signal}: shutting down${aborted ? ` (aborting ${aborted} running workflow session(s))` : ''}`);
+    await closeLlama().catch(() => undefined);
+    await app.close().catch(() => undefined);
+    setTimeout(() => process.exit(0), 1500).unref();
+  };
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 main().catch((e) => {

@@ -54,6 +54,13 @@ async function getClient(): Promise<Client> {
   }
 }
 
+export async function closeLlama(): Promise<void> {
+  const c = client;
+  client = null;
+  connecting = null;
+  if (c) await c.close().catch(() => undefined);
+}
+
 export async function callLlama<T = any>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   const c = await getClient();
   const res: any = await c.callTool({ name, arguments: { orgSlug: env.llama.org, projectKey: env.llama.project, ...args } });

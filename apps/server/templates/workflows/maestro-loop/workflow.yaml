@@ -3,7 +3,7 @@
 # Roles are Claude Code agent files (frontmatter + markdown prompt) in ./roles.
 # Prompts may use {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.url}},
 # {{project.name}}, {{project.baseBranch}}, {{project.designDocs}}, {{brain}}, {{diff}}, {{diffStat}},
-# {{iteration}}, {{feedback}} and {{steps.<stepId>.output}}.
+# {{iteration}}, {{feedback}}, {{priorWork}} (uncommitted changes found when the run started) and {{steps.<stepId>.output}}.
 
 id: maestro-loop
 name: Maestro loop (implement → review → devil's advocates → decide)
@@ -42,6 +42,12 @@ steps:
 
       ## Knowledge from the second brain
       {{brain}}
+
+      {{#if priorWork}}
+      ## Work already present in this worktree
+      A previous attempt left uncommitted changes (review them with `git diff` before deciding what to keep):
+      {{priorWork}}
+      {{/if}}
 
       Implement the ticket end to end (code + tests + docs the project expects). Reuse existing concepts and utilities;
       never duplicate what already exists. Run the project's build and relevant tests before finishing.

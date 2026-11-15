@@ -23,6 +23,16 @@ const active = new Map<string, AbortController>();
 
 export const isRunActive = (runId: string): boolean => active.has(runId);
 
+/** Aborts every running session (used on shutdown so no Claude process outlives the server). */
+export function abortAllRuns(): number {
+  let n = 0;
+  for (const ac of active.values()) {
+    ac.abort();
+    n++;
+  }
+  return n;
+}
+
 // ---------- Public API ----------
 
 export async function startRun(input: { cardId: string; workflowId: string; projectId?: string | null; baseBranch?: string | null }): Promise<WorkflowRun> {
@@ -65,6 +75,8 @@ interface StepContext {
   brain: string;
   diff: string;
   diffStat: string;
+  /** Diff stat of uncommitted changes already present in the worktree when the run started (a previous attempt). */
+  priorWork: string;
   iteration: number;
   maxIterations: number;
   feedback: string | null;
@@ -83,6 +95,9 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
   const mcpServers = readProjectMcpServers(project.path);
   const designDocs = existingDesignDocs(project, run.worktreePath);
   const brain = contextPack(project.vault);
+  const prior = await computeDiff(run.worktreePath, run.baseBranch).catch(() => ({ diff: '', stat: '' }));
+  const priorWork = prior.stat && prior.stat !== '(no changes)' ? prior.stat : '';
+  if (priorWork) appendEvent(runId, 'log', `The worktree already has changes from a previous attempt:\n${priorWork.slice(0, 1500)}`);
   const roleById = new Map(workflow.roles.map((r) => [r.id, r]));
 
   const baseCtx = (): StepContext => ({
@@ -97,6 +112,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
     brain,
     diff: '',
     diffStat: '',
+    priorWork,
     iteration: run.iteration,
     maxIterations: workflow.maxIterations,
     feedback: state.feedback,
