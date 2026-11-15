@@ -1,15 +1,19 @@
 import type { Card, ColumnId } from '@sf/shared';
-import { env } from '../config.js';
+import { SF_HOME, env } from '../config.js';
 import { nowIso } from '../db.js';
+import { callMcpJson, callMcpTool, parseLooseJson } from './mcp.js';
 import { createCard, getCardByKey, listCards, updateCard } from './cards.js';
 import { guessProjectForKey, loadConfig } from './projects.js';
 import { hub } from '../events.js';
 import { logger } from '../logger.js';
 
-export const jiraConfigured = (): boolean => !!(env.jira.baseUrl && env.jira.email && env.jira.token);
+export const jiraMode = (): 'mcp' | 'rest' => env.jira.mode;
+const restConfigured = (): boolean => !!(env.jira.baseUrl && env.jira.email && env.jira.token);
+/** MCP mode needs nothing locally: it goes through the claude.ai Atlassian connector the user authorized. */
+export const jiraConfigured = (): boolean => (jiraMode() === 'mcp' ? true : restConfigured());
 
 async function jiraFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!jiraConfigured()) throw new Error('Jira is not configured (JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)');
+  if (!restConfigured()) throw new Error('Jira REST is not configured (JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)');
   const auth = Buffer.from(`${env.jira.email}:${env.jira.token}`).toString('base64');
   const res = await fetch(`${env.jira.baseUrl}${path}`, {
     ...init,
@@ -130,6 +134,97 @@ export function textToAdf(text: string): any {
   return { type: 'doc', version: 1, content: content.length ? content : [para('')] };
 }
 
+// ---------- MCP (claude.ai Atlassian connector) ----------
+
+const mcpTool = (name: string): string => `${env.jira.mcpPrefix}${name}`;
+const mcpOpts = { cwd: SF_HOME };
+
+/** The connector returns issues as { issues: { nodes: [...], pageInfo } } or { issues: [...] }; normalise. */
+function mcpIssueNodes(res: any): { nodes: any[]; nextCursor: string | null } {
+  const container = res?.issues ?? res?.data?.issues ?? res;
+  if (Array.isArray(container)) return { nodes: container, nextCursor: res?.nextPageToken ?? null };
+  const nodes: any[] = container?.nodes ?? container?.issues ?? [];
+  const pageInfo = container?.pageInfo ?? res?.pageInfo;
+  const nextCursor = pageInfo?.hasNextPage ? pageInfo.endCursor ?? null : res?.nextPageToken ?? null;
+  return { nodes, nextCursor };
+}
+
+function mcpFindIssue(res: any): any {
+  if (res?.key && res?.fields) return res;
+  for (const k of ['issue', 'data', 'result']) if (res?.[k]?.key && res[k].fields) return res[k];
+  const { nodes } = mcpIssueNodes(res);
+  if (nodes[0]?.key) return nodes[0];
+  throw new Error(`Unexpected issue shape from the Atlassian MCP: ${JSON.stringify(res).slice(0, 200)}`);
+}
+
+async function mcpSearchIssues(jql: string, max: number): Promise<JiraIssue[]> {
+  const out: JiraIssue[] = [];
+  let token: string | null = null;
+  do {
+    const res = await callMcpJson(mcpTool('searchJiraIssuesUsingJql'), { cloudId: env.jira.cloudId, jql, maxResults: 50, fields: FIELDS, ...(token ? { nextPageToken: token } : {}) }, mcpOpts);
+    const { nodes, nextCursor } = mcpIssueNodes(res);
+    out.push(...nodes.map(mapIssue));
+    token = nextCursor;
+  } while (token && out.length < max);
+  return out;
+}
+
+async function mcpGetIssue(key: string): Promise<JiraIssue> {
+  const res = await callMcpJson(mcpTool('getJiraIssue'), { cloudId: env.jira.cloudId, issueIdOrKey: key, fields: FIELDS, fieldsByKeys: true }, mcpOpts);
+  return mapIssue(mcpFindIssue(res));
+}
+
+async function mcpMyself(): Promise<{ accountId: string; displayName: string; emailAddress?: string }> {
+  const res = await callMcpJson(mcpTool('atlassianUserInfo'), {}, mcpOpts);
+  const d = res?.data ?? res;
+  return { accountId: d.accountId, displayName: d.displayName || d.name || '', emailAddress: d.email || d.emailAddress };
+}
+
+let discovered: Record<string, string> = {};
+
+/** Resolves an operation name through the connector's discover tool (names differ per server version). */
+async function mcpOperation(query: string, preferred: string[]): Promise<string> {
+  if (discovered[query]) return discovered[query];
+  const text = await callMcpTool(mcpTool('discover'), { query }, mcpOpts);
+  const names = [...text.matchAll(/"name"\s*:\s*"([A-Za-z0-9_]+)"/g)].map((m) => m[1]);
+  const found = preferred.find((p) => names.includes(p) || text.includes(p)) || names[0];
+  if (!found) throw new Error(`Atlassian MCP: no operation found for "${query}"`);
+  discovered[query] = found;
+  return found;
+}
+
+async function mcpListTransitions(key: string): Promise<Array<{ id: string; name: string; to: string }>> {
+  const name = await mcpOperation('list transitions for a jira issue', ['listJiraIssueTransitions', 'getTransitionsForJiraIssue']);
+  const text = await callMcpTool(mcpTool('executeRead'), { name, cloudId: env.jira.cloudId, inputs: { issueIdOrKey: key } }, mcpOpts);
+  const res = parseLooseJson<any>(text);
+  const list: any[] = res?.transitions ?? res?.data?.transitions ?? (Array.isArray(res) ? res : res?.data ?? []);
+  return list.map((t: any) => ({ id: String(t.id), name: t.name, to: t.to?.name || t.toStatus || t.to || '' }));
+}
+
+async function mcpTransition(key: string, transitionIdOrName: string): Promise<void> {
+  const byId = /^\d+$/.test(transitionIdOrName);
+  await callMcpTool(mcpTool('transitionJiraIssue'), { cloudId: env.jira.cloudId, issueIdOrKey: key, ...(byId ? { transitionId: transitionIdOrName } : { transitionName: transitionIdOrName }) }, mcpOpts);
+}
+
+async function mcpCreateIssue(input: CreateIssueInput): Promise<JiraIssue> {
+  const args: Record<string, unknown> = { cloudId: env.jira.cloudId, projectKey: input.projectKey, issueType: input.issueType, summary: input.summary, description: input.description || '' };
+  if (input.labels?.length) args.labels = input.labels;
+  if (input.epicKey) args.parent = input.epicKey;
+  if (input.priority) args.priority = input.priority;
+  if (input.assignToMe) args.assignee = (await mcpMyself()).accountId;
+  const res = await callMcpJson(mcpTool('createJiraIssue'), args, mcpOpts);
+  const key = res?.key ?? res?.issue?.key ?? res?.data?.key ?? res?.issueKey;
+  if (!key) throw new Error(`createJiraIssue returned no key: ${JSON.stringify(res).slice(0, 300)}`);
+  return mcpGetIssue(String(key));
+}
+
+async function mcpProjectIssueTypes(projectKey: string): Promise<Array<{ id: string; name: string; subtask: boolean }>> {
+  const name = await mcpOperation('list issue types for a jira project', ['listJiraProjectIssueTypesMetadata', 'getJiraProjectIssueTypesMetadata']);
+  const res = parseLooseJson<any>(await callMcpTool(mcpTool('executeRead'), { name, cloudId: env.jira.cloudId, inputs: { projectIdOrKey: projectKey, projectKey } }, mcpOpts));
+  const list: any[] = res?.issueTypes ?? res?.data?.issueTypes ?? res?.data ?? (Array.isArray(res) ? res : []);
+  return list.map((t: any) => ({ id: String(t.id), name: t.name, subtask: !!t.subtask }));
+}
+
 // ---------- API ----------
 
 export interface JiraIssue {
@@ -168,6 +263,7 @@ function mapIssue(raw: any): JiraIssue {
 }
 
 export async function searchIssues(jql: string, max = 200): Promise<JiraIssue[]> {
+  if (jiraMode() === 'mcp') return mcpSearchIssues(jql, max);
   const out: JiraIssue[] = [];
   let token: string | undefined;
   do {
@@ -181,25 +277,30 @@ export async function searchIssues(jql: string, max = 200): Promise<JiraIssue[]>
 }
 
 export async function getIssue(key: string): Promise<JiraIssue> {
+  if (jiraMode() === 'mcp') return mcpGetIssue(key);
   const raw = await jiraFetch<any>(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=${FIELDS.join(',')}`);
   return mapIssue(raw);
 }
 
 export async function myself(): Promise<{ accountId: string; displayName: string; emailAddress?: string }> {
+  if (jiraMode() === 'mcp') return mcpMyself();
   return jiraFetch('/rest/api/3/myself');
 }
 
 export async function projectIssueTypes(projectKey: string): Promise<Array<{ id: string; name: string; subtask: boolean }>> {
+  if (jiraMode() === 'mcp') return mcpProjectIssueTypes(projectKey);
   const p = await jiraFetch<any>(`/rest/api/3/project/${encodeURIComponent(projectKey)}`);
   return (p.issueTypes || []).map((t: any) => ({ id: t.id, name: t.name, subtask: !!t.subtask }));
 }
 
 export async function listTransitions(key: string): Promise<Array<{ id: string; name: string; to: string }>> {
+  if (jiraMode() === 'mcp') return mcpListTransitions(key);
   const r = await jiraFetch<any>(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`);
   return (r.transitions || []).map((t: any) => ({ id: t.id, name: t.name, to: t.to?.name || '' }));
 }
 
 export async function transitionIssue(key: string, transitionIdOrName: string): Promise<void> {
+  if (jiraMode() === 'mcp') return mcpTransition(key, transitionIdOrName);
   const transitions = await listTransitions(key);
   const t = transitions.find((x) => x.id === transitionIdOrName) || transitions.find((x) => x.name.toLowerCase() === transitionIdOrName.toLowerCase());
   if (!t) throw new Error(`Transition "${transitionIdOrName}" not available for ${key} (available: ${transitions.map((x) => x.name).join(', ')})`);
@@ -218,6 +319,7 @@ export interface CreateIssueInput {
 }
 
 export async function createIssue(input: CreateIssueInput): Promise<JiraIssue> {
+  if (jiraMode() === 'mcp') return mcpCreateIssue(input);
   const fields: any = {
     project: { key: input.projectKey },
     summary: input.summary,
@@ -288,13 +390,16 @@ export async function syncFromJira(jql = env.jira.jql): Promise<{ imported: numb
     else updated++;
   }
   // Refresh cards we already track but that fell out of the query (e.g. moved to Done by QA).
-  const known = listCards().filter((c) => c.source === 'jira' && c.key && !issues.some((i) => i.key === c.key));
-  for (const c of known.slice(0, 50)) {
+  const known = listCards().filter((c) => c.source === 'jira' && c.key && !issues.some((i) => i.key === c.key)).slice(0, 50);
+  if (known.length) {
     try {
-      upsertIssueAsCard(await getIssue(c.key!));
-      updated++;
+      const refreshed = await searchIssues(`key in (${known.map((c) => c.key).join(', ')})`, 100);
+      for (const issue of refreshed) {
+        upsertIssueAsCard(issue);
+        updated++;
+      }
     } catch (e) {
-      logger.warn({ key: c.key, err: String(e) }, 'refresh failed');
+      logger.warn({ err: String(e) }, 'refresh of known cards failed');
     }
   }
   hub.broadcast({ type: 'cards.changed' });

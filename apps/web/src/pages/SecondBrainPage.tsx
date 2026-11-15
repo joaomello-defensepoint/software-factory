@@ -17,8 +17,10 @@ export function SecondBrainPage() {
   }, [vaults.data, vaultId]);
   const vault = vaults.data?.find((v) => v.id === vaultId);
 
-  const [days, setDays] = useState(14);
-  const meetings = useQuery({ queryKey: ['brain', 'meetings', days], queryFn: () => api.get<FathomMeetingSummary[]>(`/api/brain/fathom/meetings?days=${days}`), retry: false });
+  const [days, setDays] = useState(7);
+  const [mine, setMine] = useState(true);
+  const meetings = useQuery({ queryKey: ['brain', 'meetings', days], queryFn: () => api.get<FathomMeetingSummary[]>(`/api/brain/fathom/meetings?days=${days}`), retry: false, staleTime: 5 * 60_000 });
+  const visibleMeetings = (meetings.data ?? []).filter((m) => !mine || m.invitees.some((i) => /joao/i.test(i)) || /joao/i.test(m.recordedBy ?? ''));
   const pages = useQuery({ queryKey: ['brain', 'pages', vaultId], queryFn: () => api.get<BrainPage[]>(`/api/brain/vaults/${vaultId}/pages`), enabled: !!vaultId });
   const [section, setSection] = useState<BrainPage['section'] | 'all'>('synthesis');
   const [pagePath, setPagePath] = useState<string | null>(null);
@@ -30,7 +32,7 @@ export function SecondBrainPage() {
 
   const pushJob = (j: Job) => setJobs((prev) => [j, ...prev].slice(0, 6));
   const fail = (e: Error) => setError(e.message);
-  const ingest = useMutation({ mutationFn: (m: FathomMeetingSummary) => api.post<Job>(`/api/brain/vaults/${vaultId}/ingest`, { recordingId: m.recordingId, createdAt: m.createdAt }), onSuccess: pushJob, onError: fail });
+  const ingest = useMutation({ mutationFn: (m: FathomMeetingSummary) => api.post<Job>(`/api/brain/vaults/${vaultId}/ingest`, { recordingId: m.recordingId, createdAt: m.createdAt, url: m.url, title: m.title }), onSuccess: pushJob, onError: fail });
   const index = useMutation({ mutationFn: () => api.post<Job>(`/api/brain/vaults/${vaultId}/index-repo`, { projectId }), onSuccess: pushJob, onError: fail });
   const lint = useMutation({ mutationFn: () => api.post<Job>(`/api/brain/vaults/${vaultId}/lint`), onSuccess: pushJob, onError: fail });
   const ask = useMutation({ mutationFn: () => api.post<Job>(`/api/brain/vaults/${vaultId}/query`, { question }), onSuccess: (j) => { pushJob(j); setQuestion(''); }, onError: fail });
@@ -75,8 +77,9 @@ export function SecondBrainPage() {
         <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Typography variant="subtitle2" sx={{ flex: 1 }}>
-              Fathom meetings
+              Fathom meetings {meetings.isFetching ? '…' : ''}
             </Typography>
+            <Chip label={mine ? 'mine' : 'all'} size="small" color={mine ? 'primary' : 'default'} onClick={() => setMine(!mine)} />
             <ToggleButtonGroup exclusive size="small" value={days} onChange={(_e, v) => v && setDays(v)}>
               <ToggleButton value={7}>7d</ToggleButton>
               <ToggleButton value={14}>14d</ToggleButton>
@@ -86,7 +89,8 @@ export function SecondBrainPage() {
           </Box>
           {meetings.isError && <Alert severity="warning">{(meetings.error as Error).message}</Alert>}
           <List dense sx={{ overflow: 'auto', flex: 1 }}>
-            {meetings.data?.map((m) => (
+            {meetings.isLoading && <Typography color="text.secondary" sx={{ p: 1 }}>Loading through the Fathom connector (≈6 s per page)…</Typography>}
+            {visibleMeetings.map((m) => (
               <ListItemButton key={m.recordingId} onClick={() => window.open(m.url, '_blank')} sx={{ alignItems: 'flex-start' }}>
                 <ListItemText primary={m.title} secondary={`${m.createdAt.slice(0, 10)} · ${m.durationMin ? `${m.durationMin} min · ` : ''}${m.recordedBy ?? ''} · ${m.invitees.length} invitees`} />
                 <Button size="small" variant={m.ingested ? 'text' : 'outlined'} disabled={!vaultId || ingest.isPending} onClick={(e) => { e.stopPropagation(); ingest.mutate(m); }}>
@@ -94,7 +98,7 @@ export function SecondBrainPage() {
                 </Button>
               </ListItemButton>
             ))}
-            {meetings.data?.length === 0 && <Typography color="text.secondary" sx={{ p: 1 }}>No meetings in this window.</Typography>}
+            {meetings.data && visibleMeetings.length === 0 && <Typography color="text.secondary" sx={{ p: 1 }}>No meetings in this window{mine ? ' with you as invitee' : ''}.</Typography>}
           </List>
         </Paper>
         <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', minHeight: 0 }}>

@@ -14,9 +14,10 @@ State lives outside the repo so it survives re-clones: `~/.claude/software-facto
 | module                               | responsibility                                                                 |
 |--------------------------------------|--------------------------------------------------------------------------------|
 | `services/cards.ts`                  | board cards (SQLite), column moves, archive                                     |
-| `services/jira.ts`                   | Jira Cloud REST v3: search/create/transition, ADF ↔ markdown, board sync rules  |
+| `services/mcp.ts`                    | MCP bridge: one-shot Haiku session that calls a claude.ai connector tool and captures the raw result |
+| `services/jira.ts`                   | Jira: MCP mode (Atlassian connector) by default, REST v3 with a token optionally; board sync rules |
 | `services/llama.ts`                  | Llama via its MCP server (`@agllama/mcp`), key reused from `~/.claude.json`     |
-| `services/fathom.ts`                 | Fathom public API, renders transcripts in the vaults' raw export format         |
+| `services/fathom.ts`                 | Fathom: MCP mode (Fathom connector) by default, public API with a key optionally |
 | `services/ado.ts`                    | Azure DevOps PRs through the `az` CLI                                           |
 | `services/brain.ts`                  | second-brain vaults: pages, Fathom ingest, repo indexing, lint, query (jobs)    |
 | `services/claude.ts`                 | one headless Claude Code session via the Agent SDK                              |

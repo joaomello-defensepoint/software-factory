@@ -102,14 +102,16 @@ export function defaultConfig(): FactoryConfig {
       },
     ],
     board: {
+      // IWC flow: NEW/READY → Triaged → In Progress → Code Review → QA Ready → Done
       jiraStatusToColumn: {
-        backlog: ['NEW', 'To Do', 'Open', 'Backlog', 'Ready for Dev', 'Selected for Development'],
+        backlog: ['NEW', 'READY', 'Triaged', 'To Do', 'Open', 'Backlog', 'Selected for Development'],
         in_progress: ['In Progress'],
-        human_review: ['Code Review', 'In Review'],
-        pull_request: ['Pull Request', 'PR Open'],
+        human_review: ['In Review'],
+        pull_request: ['Code Review', 'Pull Request', 'PR Open'],
         done: ['QA Ready', 'Done', 'Closed', 'Resolved'],
       },
-      columnToJiraTransition: { in_progress: 'In Progress' },
+      // Transition *names* (not target statuses) attempted when a card enters a column; best effort.
+      columnToJiraTransition: { in_progress: 'In Progress', pull_request: 'Ready for Code Review' },
     },
   };
 }

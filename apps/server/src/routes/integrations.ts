@@ -6,7 +6,7 @@ import { run as runShell } from '../services/shell.js';
 import * as jira from '../services/jira.js';
 import * as llama from '../services/llama.js';
 import * as ado from '../services/ado.js';
-import { fathomConfigured } from '../services/fathom.js';
+import { fathomConfigured, fathomMode } from '../services/fathom.js';
 import * as brain from '../services/brain.js';
 import { getJob, listJobs } from '../services/jobs.js';
 import { deleteWorkflow, deleteWorkflowFile, duplicateWorkflow, getWorkflow, listWorkflowFiles, listWorkflows, saveWorkflowFile } from '../services/workflow/definitions.js';
@@ -14,7 +14,7 @@ import { cancelRun, computeDiff, isRunActive, startRun } from '../services/workf
 import { getRun, listEvents, listRuns } from '../services/workflow/runs.js';
 import { answerRequest, dismissRequest, listRequests } from '../services/workflow/requests.js';
 import { getCard, updateCard } from '../services/cards.js';
-import { getProjectConfig } from '../services/projects.js';
+import { getProjectConfig, loadConfig } from '../services/projects.js';
 import { hub } from '../events.js';
 
 const IDENTITY_EMAILS = [env.jira.email, 'joao.mello@indysoft.com', 'joao@defensepoint.com'].filter(Boolean);
@@ -24,8 +24,8 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
   app.get('/api/integrations/status', async (): Promise<IntegrationStatus> => {
     const claude = await runShell('claude', ['--version'], { timeoutMs: 10_000 });
     return {
-      jira: { configured: jira.jiraConfigured(), email: env.jira.email || null, baseUrl: env.jira.baseUrl || null, project: env.jira.project || null },
-      fathom: { configured: fathomConfigured() },
+      jira: { configured: jira.jiraConfigured(), mode: jira.jiraMode(), email: env.jira.email || null, baseUrl: env.jira.baseUrl || null, project: env.jira.project || null },
+      fathom: { configured: fathomConfigured(), mode: fathomMode() },
       ado: { configured: true, orgUrl: ado.adoOrgUrl(), loggedIn: await ado.adoLoggedIn().catch(() => false) },
       llama: { configured: llama.llamaConfigured(), org: env.llama.org, project: env.llama.project },
       claude: { version: claude.code === 0 ? claude.stdout.trim() : null },
@@ -36,6 +36,11 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
   app.post('/api/jira/sync', async (req) => {
     const body = (req.body as { jql?: string } | undefined) ?? {};
     return jira.syncFromJira(body.jql || undefined);
+  });
+  /** Verifies the Jira connection end to end (one bridge call) and reports who the connector is authorized as. */
+  app.post('/api/integrations/jira/check', async () => {
+    const me = await jira.myself();
+    return { ok: true, mode: jira.jiraMode(), accountId: me.accountId, displayName: me.displayName, email: me.emailAddress ?? null };
   });
   app.get('/api/jira/issue-types', async (req) => {
     const q = req.query as { project?: string };
@@ -118,12 +123,22 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
     return { path: q.path, content: brain.readPage(v, q.path) };
   });
   app.get('/api/brain/fathom/meetings', async (req) => {
-    const q = req.query as { days?: string };
-    return brain.listFathomMeetings(Math.min(120, Math.max(1, Number(q.days || 14))));
+    const q = req.query as { days?: string; refresh?: string };
+    return brain.listFathomMeetings(Math.min(120, Math.max(1, Number(q.days || 7))), q.refresh === '1');
+  });
+  /** Fetches a meeting through Fathom and returns the export that an ingest would write (no vault changes). */
+  app.get('/api/brain/fathom/meetings/:id/preview', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { url?: string; title?: string; createdAt?: string };
+    const { getMeeting, renderMeetingExport } = await import('../services/fathom.js');
+    const meeting = await getMeeting(id, { url: q.url, title: q.title, createdAt: q.createdAt });
+    if (!meeting) return reply.code(404).send({ error: 'Meeting not found' });
+    const text = renderMeetingExport(meeting);
+    return { recordingId: id, title: meeting.title, chars: text.length, hasSummary: !!meeting.summaryMarkdown, preview: text.slice(0, 4000) };
   });
   app.post('/api/brain/vaults/:id/ingest', async (req) => {
-    const body = z.object({ recordingId: z.string().min(1), createdAt: z.string().optional() }).parse(req.body);
-    return brain.ingestMeetingJob((req.params as { id: string }).id, body.recordingId, body.createdAt);
+    const body = z.object({ recordingId: z.string().min(1), createdAt: z.string().optional(), url: z.string().optional(), title: z.string().optional() }).parse(req.body);
+    return brain.ingestMeetingJob((req.params as { id: string }).id, body.recordingId, { createdAt: body.createdAt, url: body.url, title: body.title });
   });
   app.post('/api/brain/vaults/:id/index-repo', async (req) => {
     const body = z.object({ projectId: z.string().min(1) }).parse(req.body);
@@ -216,6 +231,11 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
     const description = body.description || defaultPrDescription(card, lastRun?.summary || null);
     const pr = await ado.createPr(project, { worktree: card.worktreePath, sourceBranch: card.branch, targetBranch: body.targetBranch || card.baseBranch || project.baseBranches[0], title, description, draft: body.draft });
     updateCard(card.id, { prUrl: pr.url, prId: pr.id, column: 'pull_request' });
+    // Best effort: move the tracker along with the card (e.g. IWC "Ready for Code Review").
+    const transition = loadConfig().board.columnToJiraTransition.pull_request;
+    if (card.source === 'jira' && card.key && transition && !body.draft) {
+      jira.transitionIssue(card.key, transition).then(async () => jira.upsertIssueAsCard(await jira.getIssue(card.key!))).catch((e) => app.log.warn(`transition failed: ${String(e)}`));
+    }
     return pr;
   });
   app.post('/api/cards/:id/pr/refresh', async (req, reply) => {

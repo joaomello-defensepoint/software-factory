@@ -294,8 +294,8 @@ export type ServerEvent =
   | { type: 'toast'; level: 'info' | 'success' | 'warning' | 'error'; message: string };
 
 export interface IntegrationStatus {
-  jira: { configured: boolean; email: string | null; baseUrl: string | null; project: string | null };
-  fathom: { configured: boolean };
+  jira: { configured: boolean; mode: 'mcp' | 'rest'; email: string | null; baseUrl: string | null; project: string | null };
+  fathom: { configured: boolean; mode: 'mcp' | 'rest' };
   ado: { configured: boolean; orgUrl: string | null; loggedIn: boolean | null };
   llama: { configured: boolean; org: string | null; project: string | null };
   claude: { version: string | null };

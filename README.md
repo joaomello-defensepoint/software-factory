@@ -12,9 +12,14 @@ Inspired by [Maestro](https://docs.runmaestro.ai) and [Paperclip](https://github
 ```bash
 n auto            # or: n 26.13.0 — Node 26 is required (node:sqlite)
 npm install
-cp .env.example .env   # then fill JIRA_API_TOKEN and FATHOM_API_KEY
+cp .env.example .env   # no tokens needed: Jira and Fathom go through your claude.ai connectors
 npm run dev            # server on :4100, web on http://localhost:5180
 ```
+
+Integrations reuse what Claude Code already has: the claude.ai **Atlassian** and **Fathom** connectors
+(called through a short headless session, see `apps/server/src/services/mcp.ts`), the **Llama** MCP
+server from `~/.claude.json`, and the **az** CLI for Azure DevOps. Optional REST tokens in `.env`
+switch Jira or Fathom to direct API calls.
 
 Production-style single process: `npm run build && npm start` (serves the built web app on :4100).
 

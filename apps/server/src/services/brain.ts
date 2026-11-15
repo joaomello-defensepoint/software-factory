@@ -103,9 +103,14 @@ export function contextPack(vaultPath: string | null, maxChars = 24_000): string
 
 const ingestedKey = (recordingId: string) => `fathom:${recordingId}`;
 
-export async function listFathomMeetings(days: number): Promise<FathomMeetingSummary[]> {
+const meetingCache = new Map<number, { at: number; meetings: Awaited<ReturnType<typeof listMeetings>> }>();
+const MEETING_CACHE_MS = 5 * 60_000;
+
+export async function listFathomMeetings(days: number, force = false): Promise<FathomMeetingSummary[]> {
   const after = new Date(Date.now() - days * 864e5).toISOString();
-  const meetings = await listMeetings({ createdAfter: after, maxPages: 5 });
+  const cached = meetingCache.get(days);
+  const meetings = !force && cached && Date.now() - cached.at < MEETING_CACHE_MS ? cached.meetings : await listMeetings({ createdAfter: after, maxPages: 5 });
+  meetingCache.set(days, { at: Date.now(), meetings });
   return meetings.map((m) => {
     const started = m.startedAt ? new Date(m.startedAt) : null;
     const ended = m.endedAt ? new Date(m.endedAt) : null;
@@ -122,13 +127,13 @@ export async function listFathomMeetings(days: number): Promise<FathomMeetingSum
   });
 }
 
-export function ingestMeetingJob(vaultId: string, recordingId: string, createdAtHint?: string) {
+export function ingestMeetingJob(vaultId: string, recordingId: string, hint: { createdAt?: string; url?: string; title?: string } = {}) {
   const vault = getVault(vaultId);
   if (!vault) throw new Error(`Unknown vault ${vaultId}`);
   return startJob('brain.ingest', `Ingest Fathom ${recordingId} → ${vault.name}`, async (log) => {
     log(`Fetching meeting ${recordingId} from Fathom…`);
-    const meeting = await getMeeting(recordingId, createdAtHint);
-    if (!meeting) throw new Error('Meeting not found (check FATHOM_API_KEY and that the recording is visible to this user)');
+    const meeting = await getMeeting(recordingId, hint);
+    if (!meeting) throw new Error('Meeting not found (is the recording visible to this Fathom user?)');
     const date = (meeting.startedAt || meeting.createdAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
     const file = `${date}-${slugify(meeting.title).slice(0, 40) || 'meeting'}.txt`;
     const rawPath = path.join(vault.path, 'raw', file);

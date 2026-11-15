@@ -164,11 +164,9 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                   </Select>
                 </FormControl>
               )}
-              {card.source === 'local' && (
-                <Button color="error" onClick={() => remove.mutate()}>
-                  Delete card
-                </Button>
-              )}
+              <Button color="error" onClick={() => remove.mutate()} disabled={running}>
+                {card.source === 'local' ? 'Delete card' : 'Remove from board (keeps the ticket)'}
+              </Button>
             </Stack>
           </Box>
         )}

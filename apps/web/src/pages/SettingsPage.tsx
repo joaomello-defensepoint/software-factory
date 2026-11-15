@@ -27,6 +27,12 @@ export function SettingsPage() {
   const raw = useQuery({ queryKey: ['config-raw'], queryFn: () => api.get<{ path: string; content: string }>('/api/config/raw') });
   const [text, setText] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
+  const [checkResult, setCheckResult] = useState<string | null>(null);
+  const check = useMutation({
+    mutationFn: () => api.post<{ accountId: string; displayName: string; email: string | null; mode: string }>('/api/integrations/jira/check'),
+    onSuccess: (r) => setCheckResult(`OK (${r.mode}) — authorized as ${r.displayName || r.email || r.accountId}`),
+    onError: (e: Error) => setCheckResult(e.message),
+  });
   useEffect(() => {
     if (raw.data) setText(raw.data.content);
   }, [raw.data]);
@@ -48,11 +54,20 @@ export function SettingsPage() {
         </Typography>
         {s ? (
           <Stack spacing={1}>
-            <Status ok={s.jira.configured} label="Jira" detail={s.jira.configured ? `${s.jira.email} @ ${s.jira.baseUrl} · project ${s.jira.project}` : 'set JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN in .env (API token from id.atlassian.com)'} />
-            <Status ok={s.fathom.configured} label="Fathom" detail={s.fathom.configured ? 'API key present' : 'set FATHOM_API_KEY in .env (Fathom → Settings → API)'} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Status ok={s.jira.configured} label="Jira" detail={s.jira.mode === 'mcp' ? `through your claude.ai Atlassian connector (MCP) · ${s.jira.baseUrl} · project ${s.jira.project}` : `REST API token · ${s.jira.email} @ ${s.jira.baseUrl}`} />
+              <Button size="small" onClick={() => check.mutate()} disabled={check.isPending}>
+                {check.isPending ? 'Checking…' : 'Test connection'}
+              </Button>
+              {checkResult && <Typography variant="caption" color={checkResult.startsWith('OK') ? 'success.main' : 'error.main'}>{checkResult}</Typography>}
+            </Box>
+            <Status ok={s.fathom.configured} label="Fathom" detail={s.fathom.mode === 'mcp' ? 'through your claude.ai Fathom connector (MCP)' : 'REST API key'} />
             <Status ok={s.ado.loggedIn} label="Azure DevOps" detail={s.ado.loggedIn ? `az CLI logged in · ${s.ado.orgUrl}` : 'run: az login --allow-no-subscriptions'} />
-            <Status ok={s.llama.configured} label="Llama" detail={s.llama.configured ? `${s.llama.org}/${s.llama.project} (key reused from ~/.claude.json)` : 'no LLAMA_API_KEY found in ~/.claude.json or .env'} />
+            <Status ok={s.llama.configured} label="Llama" detail={s.llama.configured ? `${s.llama.org}/${s.llama.project} · through the llama MCP server in ~/.claude.json` : 'no LLAMA_API_KEY found in ~/.claude.json or .env'} />
             <Status ok={!!s.claude.version} label="Claude Code" detail={s.claude.version || 'claude CLI not found on PATH'} />
+            <Typography variant="caption" color="text.secondary">
+              MCP mode reuses the connectors you already authorized in claude.ai; each sync is a short Haiku session (≈6 s, under a cent). To re-authorize or switch Jira to joao.mello@indysoft.com, reconnect the Atlassian connector in claude.ai settings. Optional REST tokens in .env switch an integration to direct API calls.
+            </Typography>
           </Stack>
         ) : (
           <Typography color="text.secondary">Loading…</Typography>

@@ -1,6 +1,10 @@
-import { env } from '../config.js';
+import { SF_HOME, env } from '../config.js';
+import { callMcpTool } from './mcp.js';
 
-export const fathomConfigured = (): boolean => !!env.fathom.apiKey;
+export const fathomMode = (): 'mcp' | 'rest' => env.fathom.mode;
+const restConfigured = (): boolean => !!env.fathom.apiKey;
+/** MCP mode needs nothing locally: it goes through the claude.ai Fathom connector the user authorized. */
+export const fathomConfigured = (): boolean => (fathomMode() === 'mcp' ? true : restConfigured());
 
 const BASE = 'https://api.fathom.ai/external/v1';
 
@@ -24,10 +28,12 @@ export interface FathomMeeting {
   summaryMarkdown: string | null;
   actionItems: Array<{ description: string; assignee: string | null; playbackUrl: string | null; timestamp: string | null }>;
   transcript: FathomTranscriptLine[] | null;
+  /** Transcript as text when it came from the MCP connector (already formatted with timestamps). */
+  transcriptText: string | null;
 }
 
 async function fathomFetch<T>(path: string): Promise<T> {
-  if (!fathomConfigured()) throw new Error('Fathom is not configured (FATHOM_API_KEY)');
+  if (!restConfigured()) throw new Error('Fathom REST is not configured (FATHOM_API_KEY)');
   const res = await fetch(`${BASE}${path}`, { headers: { 'X-Api-Key': env.fathom.apiKey, Accept: 'application/json' } });
   const text = await res.text();
   if (!res.ok) throw new Error(`Fathom ${res.status}: ${text.slice(0, 300)}`);
@@ -61,10 +67,89 @@ function mapMeeting(m: any, withTranscript: boolean): FathomMeeting {
           timestamp: l.timestamp || '',
         }))
       : null,
+    transcriptText: null,
+  };
+}
+
+// ---------- MCP (claude.ai Fathom connector) ----------
+
+const mcpTool = (name: string): string => `${env.fathom.mcpPrefix}${name}`;
+const mcpOpts = { cwd: SF_HOME };
+
+/** Parses the connector's text listing: "- Title | YYYY-MM-DD | id: N | url: U | recorded by R | invitees". */
+function parseMeetingList(text: string): { meetings: FathomMeeting[]; nextCursor: string | null } {
+  const meetings: FathomMeeting[] = [];
+  for (const line of text.split('\n')) {
+    const m = /^-\s+(.+?)\s+\|\s+(\d{4}-\d{2}-\d{2})\s+\|\s+id:\s*(\d+)\s+\|\s+url:\s*(\S+)(?:\s+\|\s+recorded by\s+(.+?))?(?:\s+\|\s+(.*))?$/.exec(line.trim());
+    if (!m) continue;
+    meetings.push({
+      recordingId: m[3],
+      title: m[1],
+      url: m[4],
+      shareUrl: m[4],
+      createdAt: `${m[2]}T00:00:00Z`,
+      startedAt: null,
+      endedAt: null,
+      recordedBy: m[5]?.trim() || null,
+      invitees: (m[6] || '').split(',').map((x) => x.trim().replace(/^'|'$/g, '')).filter(Boolean),
+      summaryMarkdown: null,
+      actionItems: [],
+      transcript: null,
+      transcriptText: null,
+    });
+  }
+  const cursor = /next_cursor=([A-Za-z0-9+/=_-]+)/.exec(text)?.[1] ?? null;
+  return { meetings, nextCursor: cursor };
+}
+
+async function mcpListMeetings(opts: { createdAfter?: string; createdBefore?: string; maxPages?: number }): Promise<FathomMeeting[]> {
+  const out: FathomMeeting[] = [];
+  let cursor: string | null = null;
+  let pages = 0;
+  const maxPages = Math.min(opts.maxPages ?? 3, 5);
+  do {
+    const args: Record<string, unknown> = { max_pages: 1 };
+    if (opts.createdAfter) args.created_after = opts.createdAfter;
+    if (opts.createdBefore) args.created_before = opts.createdBefore;
+    if (cursor) args.cursor = cursor;
+    const text = await callMcpTool(mcpTool('list_meetings'), args, mcpOpts);
+    const parsed = parseMeetingList(text);
+    out.push(...parsed.meetings);
+    cursor = parsed.nextCursor;
+    pages++;
+  } while (cursor && pages < maxPages);
+  return out;
+}
+
+async function mcpGetMeeting(recordingId: string, hint: { url?: string; title?: string; createdAt?: string }): Promise<FathomMeeting> {
+  const id = Number(recordingId);
+  const transcript = await callMcpTool(mcpTool('get_meeting_transcript'), { recording_id: id, ...(hint.url ? { url: hint.url } : {}) }, mcpOpts);
+  let summary: string | null = null;
+  try {
+    summary = await callMcpTool(mcpTool('get_meeting_summary'), { recording_id: id }, mcpOpts);
+  } catch {
+    summary = null;
+  }
+  const titleFromText = /^(?:#\s*)?(?:Title:\s*)?(.+)$/m.exec(transcript)?.[1]?.trim();
+  return {
+    recordingId,
+    title: hint.title || titleFromText || `Fathom ${recordingId}`,
+    url: hint.url || `https://fathom.video/calls/${recordingId}`,
+    shareUrl: hint.url || null,
+    createdAt: hint.createdAt || new Date().toISOString(),
+    startedAt: hint.createdAt || null,
+    endedAt: null,
+    recordedBy: null,
+    invitees: [],
+    summaryMarkdown: summary,
+    actionItems: [],
+    transcript: null,
+    transcriptText: transcript,
   };
 }
 
 export async function listMeetings(opts: { createdAfter?: string; createdBefore?: string; maxPages?: number } = {}): Promise<FathomMeeting[]> {
+  if (fathomMode() === 'mcp') return mcpListMeetings(opts);
   const out: FathomMeeting[] = [];
   let cursor: string | undefined;
   let pages = 0;
@@ -82,7 +167,9 @@ export async function listMeetings(opts: { createdAfter?: string; createdBefore?
 }
 
 /** Fetches one meeting with transcript, summary and action items (lists are the only endpoint; filtered client-side). */
-export async function getMeeting(recordingId: string, createdAtHint?: string): Promise<FathomMeeting | null> {
+export async function getMeeting(recordingId: string, hint: { createdAt?: string; url?: string; title?: string } = {}): Promise<FathomMeeting | null> {
+  if (fathomMode() === 'mcp') return mcpGetMeeting(recordingId, hint);
+  const createdAtHint = hint.createdAt;
   const params = new URLSearchParams({ include_transcript: 'true', include_summary: 'true', include_action_items: 'true' });
   if (createdAtHint) {
     const d = new Date(createdAtHint);
@@ -122,6 +209,11 @@ export function renderMeetingExport(m: FathomMeeting): string {
   }
   lines.push('---');
   lines.push('');
+  if (m.transcriptText) {
+    lines.push(m.transcriptText.trim());
+    lines.push('');
+    return lines.join('\n');
+  }
   for (const t of m.transcript || []) {
     lines.push(`${formatTs(t.timestamp)} - ${t.speaker}`);
     lines.push(`  ${t.text}`);

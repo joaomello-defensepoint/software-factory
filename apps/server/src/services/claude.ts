@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { CanUseTool, Options, PermissionMode, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, HookCallbackMatcher, HookEvent, Options, PermissionMode, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { logger } from '../logger.js';
 
 /**
@@ -26,6 +26,9 @@ export interface RunClaudeOptions {
   permissionMode?: PermissionMode;
   canUseTool?: CanUseTool;
   abortController?: AbortController;
+  hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  /** Disable the Claude Code preset and use a minimal custom system prompt (fast, for tool bridging). */
+  minimalSystemPrompt?: string;
   onInit?: (info: { sessionId: string; model: string; tools: string[]; skills: string[]; mcpServers: string[] }) => void;
   onText?: (text: string) => void;
   onTool?: (name: string, input: unknown, toolUseId: string) => void;
@@ -53,7 +56,12 @@ export async function runClaude(opts: RunClaudeOptions): Promise<RunClaudeResult
   const options: Options = {
     cwd: opts.cwd,
     model: opts.model || undefined,
-    systemPrompt: opts.systemPromptAppend ? { type: 'preset', preset: 'claude_code', append: opts.systemPromptAppend } : { type: 'preset', preset: 'claude_code' },
+    systemPrompt: opts.minimalSystemPrompt
+      ? opts.minimalSystemPrompt
+      : opts.systemPromptAppend
+        ? { type: 'preset', preset: 'claude_code', append: opts.systemPromptAppend }
+        : { type: 'preset', preset: 'claude_code' },
+    hooks: opts.hooks,
     permissionMode: opts.permissionMode ?? 'acceptEdits',
     canUseTool: opts.canUseTool ?? unattendedCanUseTool,
     settingSources: ['user', 'project', 'local'],

@@ -25,15 +25,26 @@ export const DEFAULT_PROJECTS_ROOT = path.join(home, 'Desktop', 'indysoft');
 
 export const PORT = Number(process.env.PORT || 4100);
 
+export type IntegrationMode = 'mcp' | 'rest';
+
 export const env = {
   jira: {
-    baseUrl: (process.env.JIRA_BASE_URL || '').replace(/\/$/, ''),
+    baseUrl: (process.env.JIRA_BASE_URL || 'https://indysoftco.atlassian.net').replace(/\/$/, ''),
     email: process.env.JIRA_EMAIL || '',
     token: process.env.JIRA_API_TOKEN || '',
-    jql: process.env.JIRA_SYNC_JQL || 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC',
+    /** mcp = through the user's authorized claude.ai Atlassian connector (default); rest = API token. */
+    mode: ((process.env.JIRA_MODE as IntegrationMode) || (process.env.JIRA_API_TOKEN ? 'rest' : 'mcp')) as IntegrationMode,
+    /** Site UUID, hostname or URL accepted by the Atlassian MCP; defaults to the hostname of JIRA_BASE_URL. */
+    cloudId: process.env.JIRA_CLOUD_ID || new URL(process.env.JIRA_BASE_URL || 'https://indysoftco.atlassian.net').hostname,
+    mcpPrefix: process.env.JIRA_MCP_PREFIX || 'mcp__claude_ai_Atlassian_MCP__',
+    jql: process.env.JIRA_SYNC_JQL || 'assignee = currentUser() AND statusCategory != Done AND issuetype != Epic ORDER BY updated DESC',
     project: process.env.JIRA_DEFAULT_PROJECT || 'IWC',
   },
-  fathom: { apiKey: process.env.FATHOM_API_KEY || '' },
+  fathom: {
+    apiKey: process.env.FATHOM_API_KEY || '',
+    mode: ((process.env.FATHOM_MODE as IntegrationMode) || (process.env.FATHOM_API_KEY ? 'rest' : 'mcp')) as IntegrationMode,
+    mcpPrefix: process.env.FATHOM_MCP_PREFIX || 'mcp__claude_ai_FathomMCP__',
+  },
   ado: { orgUrl: (process.env.ADO_ORG_URL || '').replace(/\/$/, ''), project: process.env.ADO_PROJECT || '' },
   llama: {
     org: process.env.LLAMA_ORG || 'indysoft',
