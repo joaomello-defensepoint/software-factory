@@ -32,7 +32,8 @@ async function main(): Promise<void> {
 
   app.setErrorHandler((err: any, _req, reply) => {
     logger.error({ err }, 'request failed');
-    const status = typeof err?.statusCode === 'number' && err.statusCode >= 400 ? err.statusCode : 500;
+    const notConfigured = /not configured/i.test(String(err?.message || ''));
+    const status = typeof err?.statusCode === 'number' && err.statusCode >= 400 ? err.statusCode : notConfigured ? 400 : 500;
     reply.code(status).send({ error: err?.message || 'Internal error' });
   });
 
