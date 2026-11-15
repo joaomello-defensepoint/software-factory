@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import type { Card, Project, WorkflowDefinition, WorkflowRun } from '@sf/shared';
 import { api } from '../../api/client';
 import { RunLog } from './RunLog';
+import { NotesPanel } from './NotesPanel';
 import { runStatusColor, sourceColor } from './CardItem';
 import { timeAgo } from '../common/format';
 
@@ -96,6 +97,8 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                   {card.labels.map((l) => <Chip key={l} label={l} variant="outlined" />)}
                 </Stack>
               )}
+              <Divider sx={{ my: 2 }} />
+              <NotesPanel cardId={card.id} running={!!running} />
             </Box>
             <Stack spacing={2}>
               <FormControl size="small" fullWidth>
@@ -119,7 +122,7 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                 </Select>
               </FormControl>
               <Button variant="contained" disabled={!card.projectId || !workflowId || running || start.isPending} onClick={() => start.mutate()}>
-                {running ? 'Workflow running…' : card.worktreePath ? 'Run workflow again' : 'Start workflow (creates worktree)'}
+                {running ? 'Workflow running…' : card.worktreePath ? 'Run workflow again' : 'Start workflow (or drop the card into In Progress)'}
               </Button>
               {card.worktreePath ? (
                 <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
@@ -205,6 +208,7 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                 )}
               </Box>
             )}
+            <NotesPanel cardId={card.id} running={!!running} />
             {latest?.error && <Alert severity="error">{latest.error}</Alert>}
             {latest?.summary && latest.status === 'succeeded' && (
               <Alert severity="success" sx={{ '& .MuiAlert-message': { width: '100%' } }}>

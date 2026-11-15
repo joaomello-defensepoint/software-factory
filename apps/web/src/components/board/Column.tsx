@@ -17,6 +17,11 @@ export function Column({ id, cards, projects, onOpen, onOpenVsCode, extra }: { i
         <Typography variant="caption" color="text.secondary">
           {cards.length}
         </Typography>
+        {id === 'in_progress' && (
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+            · drop to start the workflow
+          </Typography>
+        )}
         <Box sx={{ flex: 1 }} />
         {extra}
       </Box>

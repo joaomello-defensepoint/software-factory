@@ -15,6 +15,7 @@ import { ensureCardWorktree } from '../cardWorktree.js';
 import * as jira from '../jira.js';
 import * as llama from '../llama.js';
 import { getWorkflow } from './definitions.js';
+import { markDelivered, notesBlock, undeliveredNotes } from '../notes.js';
 import { askHuman } from './requests.js';
 import { appendEvent, createRun, getRun, getRunState, saveRunState, updateRun, type RunState } from './runs.js';
 import { renderTemplate } from './template.js';
@@ -77,6 +78,8 @@ interface StepContext {
   diffStat: string;
   /** Diff stat of uncommitted changes already present in the worktree when the run started (a previous attempt). */
   priorWork: string;
+  /** Steering notes the human wrote for this card (oldest first). */
+  notes: string;
   iteration: number;
   maxIterations: number;
   feedback: string | null;
@@ -113,6 +116,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
     diff: '',
     diffStat: '',
     priorWork,
+    notes: notesBlock(card.id),
     iteration: run.iteration,
     maxIterations: workflow.maxIterations,
     feedback: state.feedback,
@@ -155,8 +159,25 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
     return { behavior: 'allow', updatedInput: input };
   };
 
+  /** Renders a step prompt; steering notes are appended unless the template places {{notes}} itself. */
+  const renderStep = (step: WorkflowStep, template: string, ctx: StepContext): string => {
+    const rendered = renderTemplate(template, ctx as any);
+    if (!ctx.notes || /\{\{\s*notes\s*\}\}/.test(template)) return rendered;
+    return `${rendered}\n\n## Steering notes from the human (oldest first — follow them, they override earlier instructions)\n${ctx.notes}`;
+  };
+
   const runRole = async (step: WorkflowStep, role: WorkflowRole, prompt: string, extra: { outputSchema?: Record<string, unknown>; resume?: string | null } = {}) => {
     const editTools = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+    const sessionKey = `${step.id}:${role.id}:${run.iteration}`;
+    // Notes written while the session runs reach the agent right after its next tool call.
+    markDelivered(undeliveredNotes(card.id, sessionKey).map((n) => n.id), sessionKey); // notes already in the prompt
+    const steeringHook = async () => {
+      const fresh = undeliveredNotes(card.id, sessionKey);
+      if (!fresh.length) return {};
+      markDelivered(fresh.map((n) => n.id), sessionKey);
+      appendEvent(runId, 'human_note', `Delivered ${fresh.length} note(s) to ${role.name}`, { step: step.id, role: role.id, data: fresh.map((n) => n.text) });
+      return { hookSpecificOutput: { hookEventName: 'PostToolUse' as const, additionalContext: `New steering note(s) from the human — follow them from now on:\n${fresh.map((n) => `- ${n.text}`).join('\n')}` } };
+    };
     const allowed = role.tools.length ? role.tools : undefined;
     const disallowed = role.tools.length ? editTools.filter((t) => !role.tools.includes(t)) : undefined;
     appendEvent(runId, 'log', `${role.name} starts (${role.model || workflow.defaultModel})${extra.resume ? ' — resuming previous session' : ''}`, { step: step.id, role: role.id });
@@ -173,6 +194,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
       outputSchema: extra.outputSchema,
       canUseTool: canUseTool(step, role),
       abortController: ac,
+      hooks: { PostToolUse: [{ hooks: [steeringHook as any] }] },
       onInit: (info) => appendEvent(runId, 'log', `session ${info.sessionId} · model ${info.model} · ${info.skills.length} skills · mcp: ${info.mcpServers.join(', ') || 'none'}`, { step: step.id, role: role.id }),
       onText: (t) => appendEvent(runId, 'assistant_text', t.length > 4000 ? `${t.slice(0, 4000)}…` : t, { step: step.id, role: role.id }),
       onTool: (name, input, id) => appendEvent(runId, 'tool_use', `${name} ${summarizeTool(name, input)}`, { step: step.id, role: role.id, data: { id, name, input: truncate(input) } }),
@@ -206,13 +228,13 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
       if (step.kind === 'agent') {
         const role = roleById.get(step.roles[0]);
         if (!role) throw new Error(`Step ${step.id}: unknown role ${step.roles[0]}`);
-        const res = await runRole(step, role, renderTemplate(step.prompt, ctx as any), { resume: step.resumeSession ? state.sessions[role.id] || null : null });
+        const res = await runRole(step, role, renderStep(step, step.prompt, ctx), { resume: step.resumeSession ? state.sessions[role.id] || null : null });
         state.outputs[step.id] = res.text;
         saveRunState(runId, state);
       } else if (step.kind === 'debate') {
         const roles = step.roles.map((id) => roleById.get(id)).filter((r): r is WorkflowRole => !!r);
         if (roles.length < 2) throw new Error(`Step ${step.id}: a debate needs at least two roles`);
-        const basePrompt = renderTemplate(step.prompt, ctx as any);
+        const basePrompt = renderStep(step, step.prompt, ctx);
         // Round 0: independent positions, in parallel.
         const first = await Promise.all(roles.map((r) => runRole(step, r, basePrompt).then((res) => ({ role: r, res }))));
         const positions = new Map(first.map(({ role, res }) => [role.id, res.text]));
@@ -247,7 +269,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
           required: ['decision', 'rationale'],
           additionalProperties: false,
         };
-        const res = await runRole(step, role, renderTemplate(step.prompt, ctx as any), { outputSchema: schema });
+        const res = await runRole(step, role, renderStep(step, step.prompt, ctx), { outputSchema: schema });
         const verdict = (res.structured as any) || parseDecisionFallback(res.text, outcomes);
         state.outputs[step.id] = `Decision: ${verdict.decision}\n\n${verdict.rationale || ''}${verdict.instructions ? `\n\nInstructions:\n${verdict.instructions}` : ''}`;
         state.decisions.push({ iteration: run.iteration, decision: verdict.decision, rationale: verdict.rationale || '' });

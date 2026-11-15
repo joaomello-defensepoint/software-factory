@@ -187,6 +187,7 @@ export type RunEventType =
   | 'decision'
   | 'human_request'
   | 'human_answer'
+  | 'human_note'
   | 'shell'
   | 'error'
   | 'log';
@@ -234,6 +235,17 @@ export interface HumanRequest {
   answers: Record<string, string> | null;
   createdAt: string;
   answeredAt: string | null;
+}
+
+/** A steering note from the human to the agents working a card. */
+export interface Note {
+  id: string;
+  cardId: string;
+  runId: string | null;
+  ts: string;
+  text: string;
+  /** Session keys ("step:role") that already received this note mid-run. */
+  delivered: string[];
 }
 
 // ---------- Second brain ----------
@@ -287,6 +299,7 @@ export type ServerEvent =
   | { type: 'run.changed'; run: WorkflowRun }
   | { type: 'request.created'; request: HumanRequest }
   | { type: 'request.answered'; request: HumanRequest }
+  | { type: 'note.created'; note: Note }
   | { type: 'system.stats'; stats: SystemStats }
   | { type: 'brain.changed'; vaultId: string }
   | { type: 'job.log'; jobId: string; line: string }

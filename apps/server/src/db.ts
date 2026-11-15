@@ -88,6 +88,16 @@ function migrate(d: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_requests_status ON human_requests(status);
 
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL,
+      run_id TEXT,
+      ts TEXT NOT NULL,
+      text TEXT NOT NULL,
+      delivered TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX IF NOT EXISTS idx_notes_card ON notes(card_id, ts);
+
     CREATE TABLE IF NOT EXISTS kv (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL

@@ -4,6 +4,10 @@ import { COLUMNS } from '@sf/shared';
 import { archiveDone, createCard, deleteCard, getCard, listCards, moveCard, restoreCard, updateCard } from '../services/cards.js';
 import { openInVsCode } from '../services/vscode.js';
 import { ensureCardWorktree, removeCardWorktree } from '../services/cardWorktree.js';
+import { loadConfig } from '../services/projects.js';
+import { cancelRun, isRunActive, startRun } from '../services/workflow/engine.js';
+import { addNote, listNotes } from '../services/notes.js';
+import { toast } from '../events.js';
 
 const columnSchema = z.enum(COLUMNS);
 
@@ -55,8 +59,32 @@ export async function cardRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/cards/:id/move', async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = z.object({ column: columnSchema, index: z.number().int().min(0) }).parse(req.body);
+    const before = getCard(id);
     const card = moveCard(id, body.column, body.index);
-    return card ?? reply.code(404).send({ error: 'Not found' });
+    if (!card) return reply.code(404).send({ error: 'Not found' });
+    const active = !!card.runId && isRunActive(card.runId);
+    const cfg = loadConfig().board;
+    if (body.column === 'in_progress' && before?.column !== 'in_progress' && !active && cfg.autoStart) {
+      if (!card.projectId) toast('warning', `${card.key || card.title}: pick a project in the card to start the ${cfg.defaultWorkflow} workflow`);
+      else {
+        toast('info', `${card.key || card.title}: starting ${cfg.defaultWorkflow}…`);
+        startRun({ cardId: card.id, workflowId: cfg.defaultWorkflow }).catch((e) => toast('error', `${card.key || card.title}: ${String(e.message || e)}`));
+      }
+    } else if (body.column !== 'in_progress' && active && card.runId) {
+      cancelRun(card.runId);
+      toast('info', `${card.key || card.title}: workflow cancelled (card left In Progress)`);
+    }
+    return card;
+  });
+
+  /** Steering notes: reach the running agent at its next tool call and every later step's prompt. */
+  app.get('/api/cards/:id/notes', async (req) => listNotes((req.params as { id: string }).id));
+  app.post('/api/cards/:id/notes', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({ text: z.string().min(1).max(4000) }).parse(req.body);
+    const card = getCard(id);
+    if (!card) return reply.code(404).send({ error: 'Not found' });
+    return addNote(id, card.runId && isRunActive(card.runId) ? card.runId : null, body.text);
   });
 
   app.delete('/api/cards/:id', async (req) => {

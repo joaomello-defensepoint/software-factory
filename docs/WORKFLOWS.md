@@ -60,6 +60,18 @@ implement ──► review ──► challenge (2 advocates, debate) ──► d
 5. **finalize** stages and commits inside the worktree. The card moves to **Human Review**, you
    open the worktree in VS Code from the card, and press *Create Azure DevOps PR* when satisfied.
 
+## Starting, steering, stopping
+
+- **Drop a card into In Progress** to start `board.defaultWorkflow` (`config.yaml`; `autoStart: false`
+  disables it). The card needs a project; the base branch defaults to the project's first one.
+  Dragging the card out of In Progress cancels the run.
+- **Notes to the agents** (card dialog, both tabs): free text you can drop at any time. Before a run
+  they are read by every role; during a run they reach the active agent right after its next tool
+  call (PostToolUse hook `additionalContext`) and are prepended to every later step's prompt, so a
+  course correction you write while the implementer works also shapes the reviewer, the advocates and
+  the maestro. The run log shows when each note was delivered.
+- **Cancel** from the run tab; **questions and permissions** arrive in the Requests tab.
+
 ## Design choices worth discussing
 
 **Maestro as code, Claude as judge.** The loop itself is deterministic Node code; Claude only
