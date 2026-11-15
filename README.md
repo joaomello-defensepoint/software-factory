@@ -22,6 +22,8 @@ server from `~/.claude.json`, and the **az** CLI for Azure DevOps. Optional REST
 switch Jira or Fathom to direct API calls.
 
 Production-style single process: `npm run build && npm start` (serves the built web app on :4100).
+Or double-click **Software Factory.command** on the Desktop (a copy of `scripts/start.command`): it builds,
+starts the server, opens http://127.0.0.1:4100 in the browser, and stops when you close the Terminal window.
 
 Stopping and restarting is safe: cards, runs, requests and settings live in `~/.claude/software-factory/factory.db`
 and `config.yaml`, workflow definitions in `~/.claude/software-factory/workflows`. A workflow that was mid-run when
