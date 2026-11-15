@@ -11,7 +11,7 @@ import { getCard, updateCard } from '../cards.js';
 import { runClaude } from '../claude.js';
 import { existingDesignDocs, getProjectConfig, loadConfig, type ProjectConfig } from '../projects.js';
 import { git, run as runShell } from '../shell.js';
-import { createWorktree, slugify } from '../worktrees.js';
+import { ensureCardWorktree } from '../cardWorktree.js';
 import * as jira from '../jira.js';
 import * as llama from '../llama.js';
 import { getWorkflow } from './definitions.js';
@@ -22,20 +22,6 @@ import { renderTemplate } from './template.js';
 const active = new Map<string, AbortController>();
 
 export const isRunActive = (runId: string): boolean => active.has(runId);
-
-// ---------- Branch naming ----------
-
-export function branchNameFor(project: ProjectConfig, card: Card): string {
-  const key = card.key || slugify(card.title).slice(0, 40) || card.id;
-  const isDefect = /defect|bug/i.test(card.issueType || '');
-  const slug = slugify(card.title).slice(0, 40);
-  const tpl = isDefect ? (project as any).defectBranchTemplate : (project as any).branchTemplate;
-  if (typeof tpl === 'string' && tpl) return tpl.replace('{key}', key).replace('{keyLower}', key.toLowerCase()).replace('{slug}', slug);
-  if (project.id === 'new-customer-portal') return `${key.toLowerCase()}-${slug}`;
-  if (project.id === 'enterprise-kiosk') return `Task/${key}`;
-  if (!card.key) return `feature/${key}`;
-  return isDefect ? `Defect/${key}` : `Feature/${key}`;
-}
 
 // ---------- Public API ----------
 
@@ -53,13 +39,11 @@ export async function startRun(input: { cardId: string; workflowId: string; proj
   if (!fs.existsSync(project.path)) throw new Error(`Project folder missing: ${project.path}`);
   const baseBranch = input.baseBranch || card.baseBranch || project.baseBranches[0];
 
-  const branch = card.branch && card.worktreePath ? card.branch : branchNameFor(project, card);
-  const wtName = card.key || slugify(card.title).slice(0, 40) || card.id;
-  const wt = await createWorktree(project.path, wtName, branch, baseBranch);
-  if (!wt.ok) throw new Error(`Worktree failed: ${wt.message}`);
+  const wt = await ensureCardWorktree(card.id, { projectId: project.id, baseBranch });
+  if (wt.isMain) throw new Error(`Branch ${wt.branch} is checked out in the main checkout of ${project.name}; switch it to another branch (or remove that checkout) so the factory can use a worktree`);
 
   const run = createRun({ cardId: card.id, workflowId: workflow.id, projectId: project.id, worktreePath: wt.path, branch: wt.branch, baseBranch });
-  updateCard(card.id, { projectId: project.id, baseBranch, branch: wt.branch, worktreePath: wt.path, runId: run.id, column: 'in_progress' });
+  updateCard(card.id, { runId: run.id, column: 'in_progress' });
   appendEvent(run.id, 'run_started', `Run started with workflow "${workflow.name}" in ${wt.path} (${wt.message})`);
 
   void execute(run.id, workflow, project, card).catch((e) => logger.error({ err: e, run: run.id }, 'run crashed'));

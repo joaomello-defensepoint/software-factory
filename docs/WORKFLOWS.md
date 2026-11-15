@@ -87,6 +87,11 @@ session explicitly because they are keyed by the main checkout path. One caveat:
 reads `CLAUDE.md` files from parent folders, so a worktree under `<repo>/.claude/worktrees/` also
 sees the main checkout's `CLAUDE.md`; the role prompts state that the worktree's own files win.
 
+**Worktrees** always live in `<repo>/.claude/worktrees/<KEY>` for every project, NewCustomerPortal
+included (its own CLAUDE.md suggests a `_wt` folder; the user chose to keep one convention). "Open in
+VS Code" on a card adopts a worktree that already has the ticket's branch or key, or creates one from
+the base branch, and never opens the main checkout.
+
 **Branch naming** follows what the repos already use: `Feature/IWC-####` / `Defect/IWC-####`
 (EnterpriseWeb), `Task/IWC-####` (Kiosk), `custeqwork-##-slug` (NewCustomerPortal). Override per
 project with `branchTemplate` / `defectBranchTemplate` in `config.yaml`.

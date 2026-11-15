@@ -85,7 +85,7 @@ export function CardItem({ card, project, onOpen, onOpenVsCode, dragging }: { ca
             </IconButton>
           </Tooltip>
         )}
-        <Tooltip title={card.worktreePath ? `Open worktree in VS Code` : 'Open project in VS Code'}>
+        <Tooltip title={card.worktreePath ? `Open worktree in VS Code (${card.branch})` : 'Open in VS Code — creates the ticket worktree first'}>
           <IconButton size="small" onClick={(e) => { e.stopPropagation(); onOpenVsCode(card); }} onPointerDown={(e) => e.stopPropagation()}>
             <CodeIcon sx={{ fontSize: 16 }} />
           </IconButton>

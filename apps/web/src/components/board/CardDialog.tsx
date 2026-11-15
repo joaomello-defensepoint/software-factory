@@ -48,7 +48,9 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
     onError: fail,
   });
   const cancel = useMutation({ mutationFn: (runId: string) => api.post(`/api/runs/${runId}/cancel`), onSuccess: invalidate, onError: fail });
-  const open = useMutation({ mutationFn: () => api.post<{ ok: boolean; message: string }>(`/api/cards/${id}/open`), onSuccess: (r) => (r.ok ? setNotice(r.message) : setError(r.message)), onError: fail });
+  const open = useMutation({ mutationFn: () => api.post<{ ok: boolean; message: string }>(`/api/cards/${id}/open`), onSuccess: (r) => { (r.ok ? setNotice : setError)(r.message); invalidate(); }, onError: fail });
+  const ensureWt = useMutation({ mutationFn: () => api.post<{ message: string }>(`/api/cards/${id}/worktree`), onSuccess: (r) => { setNotice(r.message); invalidate(); }, onError: fail });
+  const removeWt = useMutation({ mutationFn: () => api.del<{ ok: boolean; message: string }>(`/api/cards/${id}/worktree`, {}), onSuccess: (r) => { (r.ok ? setNotice : setError)(r.message); invalidate(); }, onError: fail });
   const createPr = useMutation({ mutationFn: () => api.post<{ url: string }>(`/api/cards/${id}/pr`, { draft }), onSuccess: (pr) => { setNotice(`PR created: ${pr.url}`); invalidate(); }, onError: fail });
   const refreshPr = useMutation({ mutationFn: () => api.post<{ status: string; mergeStatus: string | null }>(`/api/cards/${id}/pr/refresh`), onSuccess: (pr) => { setNotice(`PR status: ${pr.status}${pr.mergeStatus ? ` (${pr.mergeStatus})` : ''}`); invalidate(); }, onError: fail });
   const transition = useMutation({ mutationFn: (t: string) => api.post(`/api/jira/transitions/${card!.key}`, { transition: t }), onSuccess: () => { invalidate(); qc.invalidateQueries({ queryKey: ['transitions'] }); }, onError: fail });
@@ -119,16 +121,32 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
               <Button variant="contained" disabled={!card.projectId || !workflowId || running || start.isPending} onClick={() => start.mutate()}>
                 {running ? 'Workflow running…' : card.worktreePath ? 'Run workflow again' : 'Start workflow (creates worktree)'}
               </Button>
-              {card.worktreePath && (
+              {card.worktreePath ? (
                 <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
-                  branch <b>{card.branch}</b>
+                  worktree on <b>{card.branch}</b>
                   <br />
                   {card.worktreePath}
                 </Typography>
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  No worktree yet — "Open in VS Code" creates it under .claude/worktrees from the base branch.
+                </Typography>
               )}
-              <Button variant="outlined" onClick={() => open.mutate()} disabled={!card.worktreePath && !card.projectId}>
-                Open in VS Code
+              <Button variant="outlined" onClick={() => open.mutate()} disabled={!card.projectId || open.isPending}>
+                {open.isPending ? 'Preparing worktree…' : 'Open in VS Code'}
               </Button>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                {!card.worktreePath && (
+                  <Button size="small" onClick={() => ensureWt.mutate()} disabled={!card.projectId || ensureWt.isPending}>
+                    Create worktree only
+                  </Button>
+                )}
+                {card.worktreePath && !running && (
+                  <Button size="small" color="warning" onClick={() => removeWt.mutate()} disabled={removeWt.isPending}>
+                    Remove worktree
+                  </Button>
+                )}
+              </Box>
               <Divider />
               {card.prUrl ? (
                 <>

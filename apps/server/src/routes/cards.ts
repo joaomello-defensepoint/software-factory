@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { COLUMNS } from '@sf/shared';
 import { archiveDone, createCard, deleteCard, getCard, listCards, moveCard, restoreCard, updateCard } from '../services/cards.js';
 import { openInVsCode } from '../services/vscode.js';
-import { getProjectConfig } from '../services/projects.js';
+import { ensureCardWorktree, removeCardWorktree } from '../services/cardWorktree.js';
 
 const columnSchema = z.enum(COLUMNS);
 
@@ -67,13 +67,23 @@ export async function cardRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/cards/archive-done', async () => ({ archived: archiveDone() }));
   app.post('/api/cards/:id/restore', async (req) => restoreCard((req.params as { id: string }).id));
 
-  /** Opens the card's worktree in VS Code, falling back to the project root. */
+  /** Opens the card's worktree in VS Code, creating or adopting the worktree first (never the main checkout). */
   app.post('/api/cards/:id/open', async (req, reply) => {
     const card = getCard((req.params as { id: string }).id);
     if (!card) return reply.code(404).send({ error: 'Not found' });
-    const project = card.projectId ? getProjectConfig(card.projectId) : undefined;
-    const target = card.worktreePath || project?.path;
-    if (!target) return reply.code(400).send({ error: 'Card has no worktree and no project assigned' });
-    return openInVsCode(target);
+    const body = (req.body as { projectId?: string; baseBranch?: string } | undefined) ?? {};
+    const wt = await ensureCardWorktree(card.id, { projectId: body.projectId, baseBranch: body.baseBranch });
+    const opened = await openInVsCode(wt.path);
+    return { ...opened, message: `${wt.message}. ${opened.message}`, worktree: wt };
+  });
+
+  /** Ensures the worktree exists without opening it. */
+  app.post('/api/cards/:id/worktree', async (req) => {
+    const body = (req.body as { projectId?: string; baseBranch?: string } | undefined) ?? {};
+    return ensureCardWorktree((req.params as { id: string }).id, { projectId: body.projectId, baseBranch: body.baseBranch });
+  });
+  app.delete('/api/cards/:id/worktree', async (req) => {
+    const body = (req.body as { force?: boolean } | undefined) ?? {};
+    return removeCardWorktree((req.params as { id: string }).id, !!body.force);
   });
 }

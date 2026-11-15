@@ -33,6 +33,40 @@ export function slugify(input: string): string {
     .slice(0, 60);
 }
 
+/** Folder name for a worktree: ticket keys keep their case (IWC-9460), anything else is sanitised. */
+export function worktreeDirName(input: string): string {
+  return input
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+/**
+ * Finds a worktree that already serves this ticket: same branch, or a folder named after the ticket key
+ * (the user's existing worktrees use names like IWC-9413). The main checkout counts when it has the branch.
+ */
+export async function findWorktree(repo: string, match: { branch?: string | null; key?: string | null }): Promise<WorktreeInfo | null> {
+  const list = await listWorktrees(repo);
+  const branch = match.branch?.toLowerCase();
+  const key = match.key?.toLowerCase();
+  const byBranch = branch ? list.find((w) => (w.branch || '').toLowerCase() === branch) : null;
+  if (byBranch) return byBranch;
+  if (key) {
+    const compact = key.replace(/-/g, '');
+    const hasKey = (s: string) => {
+      const l = s.toLowerCase();
+      return l.includes(key) || l.includes(compact);
+    };
+    // Any checkout (main included) whose branch carries the key, e.g. Feature/IWC-9451 checked out in the main folder.
+    const byBranchKey = list.find((w) => w.branch && hasKey(w.branch));
+    if (byBranchKey) return byBranchKey;
+    const named = list.filter((w) => !w.isMain).find((w) => path.basename(w.path).toLowerCase() === key) || list.filter((w) => !w.isMain).find((w) => hasKey(path.basename(w.path)));
+    if (named) return named;
+  }
+  return null;
+}
+
 /** Makes sure git ignores the local worktree folder (Claude Code does the same via .git/info/exclude). */
 export function ensureWorktreeExclude(repo: string): void {
   try {
@@ -57,7 +91,7 @@ export interface CreateWorktreeResult {
  * Creates (or reuses) a worktree at <repo>/.claude/worktrees/<name> on branch <branch>, based on origin/<base> when it exists.
  */
 export async function createWorktree(repo: string, name: string, branch: string, base: string): Promise<CreateWorktreeResult> {
-  const dir = path.join(worktreeRoot(repo), slugify(name));
+  const dir = path.join(worktreeRoot(repo), worktreeDirName(name) || slugify(name));
   ensureWorktreeExclude(repo);
   fs.mkdirSync(worktreeRoot(repo), { recursive: true });
 
