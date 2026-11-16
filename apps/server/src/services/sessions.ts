@@ -194,6 +194,8 @@ interface LiveChat {
   queue: string[];
   waiters: Array<() => void>;
   closed: boolean;
+  /** Set when the server is shutting down: the chat ends as 'interrupted' so it can be continued after restart. */
+  interrupted?: boolean;
   abort: AbortController;
   busy: boolean;
 }
@@ -221,20 +223,29 @@ const wake = (chat: LiveChat) => {
 export interface StartChatInput {
   cwd: string;
   title: string;
-  prompt: string;
+  /** First message; omit to open the chat and wait for the human's first message. */
+  prompt?: string | null;
   model?: string | null;
   resume?: string | null;
   projectPath?: string | null;
   cardId?: string | null;
   allowedTools?: string[];
+  /** Continue on an existing session row (same transcript) instead of registering a new one. */
+  sessionId?: string | null;
 }
 
 /** Starts a free-form session that keeps accepting messages until ended. Questions/permissions go to the Requests tab. */
 export function startChat(input: StartChatInput): SessionSummary {
-  const session = registerSession({ kind: 'chat', title: input.title, cwd: input.cwd, model: input.model ?? null, cardId: input.cardId ?? null, interactive: true });
-  const chat: LiveChat = { id: session.id, queue: [input.prompt], waiters: [], closed: false, abort: new AbortController(), busy: false };
+  const session = input.sessionId
+    ? getSession(input.sessionId)!
+    : registerSession({ kind: 'chat', title: input.title, cwd: input.cwd, model: input.model ?? null, cardId: input.cardId ?? null, interactive: true });
+  const chat: LiveChat = { id: session.id, queue: input.prompt ? [input.prompt] : [], waiters: [], closed: false, abort: new AbortController(), busy: false };
   chats.set(session.id, chat);
-  appendMessage(session.id, 'user', input.prompt);
+  if (input.sessionId) {
+    updateSession(session.id, { status: 'running', endedAt: null });
+    appendMessage(session.id, 'system', input.resume ? 'Session resumed' : 'Session restarted');
+  }
+  if (input.prompt) appendMessage(session.id, 'user', input.prompt);
 
   const canUseTool: CanUseTool = async (toolName, toolInput, options) => {
     if (toolName === 'AskUserQuestion') {
@@ -286,8 +297,8 @@ export function startChat(input: StartChatInput): SessionSummary {
   };
 
   void (async () => {
-    let cost = 0;
-    let turns = 0;
+    let cost = getSession(session.id)?.costUsd ?? 0;
+    let turns = getSession(session.id)?.turns ?? 0;
     try {
       updateSession(session.id, { status: 'running' });
       const q = query({ prompt: userMessages(chat), options });
@@ -323,11 +334,12 @@ export function startChat(input: StartChatInput): SessionSummary {
           if (m.subtype !== 'success') appendMessage(session.id, 'system', `turn ended: ${m.subtype}${Array.isArray(m.errors) && m.errors.length ? ` — ${m.errors.join('; ')}` : ''}`);
         }
       }
-      updateSession(session.id, { status: 'done', endedAt: nowIso(), costUsd: cost, turns });
+      if (chat.interrupted) appendMessage(session.id, 'system', 'Server stopped; continue this chat after restart');
+      updateSession(session.id, { status: chat.interrupted ? 'interrupted' : 'done', endedAt: nowIso(), costUsd: cost, turns });
     } catch (e: any) {
       const cancelled = chat.abort.signal.aborted;
-      appendMessage(session.id, 'system', cancelled ? 'Session ended' : `Session failed: ${String(e?.message || e)}`);
-      updateSession(session.id, { status: chat.closed ? 'done' : cancelled ? 'cancelled' : 'failed', endedAt: nowIso(), costUsd: cost, turns });
+      appendMessage(session.id, 'system', chat.interrupted ? 'Server stopped; continue this chat after restart' : cancelled ? 'Session ended' : `Session failed: ${String(e?.message || e)}`);
+      updateSession(session.id, { status: chat.interrupted ? 'interrupted' : chat.closed ? 'done' : cancelled ? 'cancelled' : 'failed', endedAt: nowIso(), costUsd: cost, turns });
       if (!cancelled) {
         logger.error({ err: e, session: session.id }, 'chat session failed');
         toast('error', `${input.title}: ${String(e?.message || e)}`);
@@ -337,24 +349,34 @@ export function startChat(input: StartChatInput): SessionSummary {
     }
   })();
 
-  return session;
+  return getSession(session.id) ?? session;
 }
 
-/** Continues an ended/interrupted session as a new interactive chat on the same Claude session id. */
+/**
+ * Continues an ended/interrupted session on the same Claude session id.
+ * Chats continue in place (same row, same transcript, composer reopens; no prompt is sent unless given).
+ * Other kinds (workflow roles, brain jobs, bridges) become a new interactive chat that picks up the context.
+ */
 export function resumeSessionAsChat(id: string, prompt?: string): SessionSummary {
   const s = getSession(id);
   if (!s) throw new Error('Unknown session');
   if (!s.claudeSessionId) throw new Error('This session has no Claude session id to resume');
   if (isChatLive(id)) throw new Error('Session is still live');
+  const text = prompt?.trim() || null;
+  if (s.kind === 'chat' && s.interactive) {
+    return startChat({ sessionId: s.id, cwd: s.cwd, title: s.title, prompt: s.status === 'interrupted' && !text ? INTERRUPTED_PROMPT : text, model: s.model, resume: s.claudeSessionId, cardId: s.cardId });
+  }
   return startChat({
     cwd: s.cwd,
     title: s.title.startsWith('Resumed: ') ? s.title : `Resumed: ${s.title}`,
-    prompt: prompt?.trim() || 'The server was interrupted while you were working. Summarize in a few lines where you stopped and what remains, then continue; if a human decision is needed, ask.',
+    prompt: text || (s.status === 'interrupted' ? INTERRUPTED_PROMPT : 'Continue where we left off. Summarize the current state in two lines, then wait for my instructions.'),
     model: s.model,
     resume: s.claudeSessionId,
     cardId: s.cardId,
   });
 }
+
+const INTERRUPTED_PROMPT = 'The server was interrupted while you were working. Summarize in a few lines where you stopped and what remains, then continue; if a human decision is needed, ask.';
 
 export function sendChatMessage(id: string, text: string): SessionMessageLine {
   const chat = chats.get(id);
@@ -376,7 +398,10 @@ export function endChat(id: string): boolean {
 
 export function abortAllChats(): number {
   let n = 0;
-  for (const id of [...chats.keys()]) if (endChat(id)) n++;
+  for (const [id, chat] of [...chats.entries()]) {
+    chat.interrupted = true;
+    if (endChat(id)) n++;
+  }
   return n;
 }
 

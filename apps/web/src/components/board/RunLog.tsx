@@ -4,6 +4,7 @@ import type { RunEvent, ServerEvent } from '@sf/shared';
 import { api } from '../../api/client';
 import { useServerEvents } from '../../api/ws';
 import { mono } from '../../theme';
+import { Markdown } from '../common/Markdown';
 
 const colors: Partial<Record<RunEvent['type'], string>> = {
   step_started: '#7aa2f7',
@@ -40,7 +41,11 @@ export function RunLog({ runId }: { runId: string }) {
             {new Date(e.ts).toLocaleTimeString([], { hour12: false })}
           </Typography>
           <Chip label={e.role || e.type} size="small" sx={{ height: 18, fontSize: 10, minWidth: 90, bgcolor: 'transparent', border: '1px solid', borderColor: colors[e.type] || 'divider', color: colors[e.type] || 'text.secondary' }} />
-          <Box sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: e.type === 'assistant_text' ? 'text.primary' : 'text.secondary', flex: 1 }}>{e.text}</Box>
+          {e.type === 'assistant_text' || e.type === 'decision' || e.type === 'human_note' ? (
+            <Markdown sx={{ flex: 1, minWidth: 0, fontFamily: 'Inter, system-ui, sans-serif', color: 'text.primary', '& p:first-of-type': { mt: 0 } }}>{e.text}</Markdown>
+          ) : (
+            <Box sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'text.secondary', flex: 1, minWidth: 0 }}>{e.text}</Box>
+          )}
         </Box>
       ))}
       <div ref={endRef} />

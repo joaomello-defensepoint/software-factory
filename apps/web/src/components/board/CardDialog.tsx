@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Select, Stack, Switch, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ReactMarkdown from 'react-markdown';
+import { Markdown } from '../common/Markdown';
 import type { Card, Project, WorkflowDefinition, WorkflowRun } from '@sf/shared';
 import { api } from '../../api/client';
 import { RunLog } from './RunLog';
@@ -91,7 +91,7 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                 {card.epicKey ? ` · epic ${card.epicKey}` : ''}
               </Typography>
               <Box sx={{ '& p': { mt: 0 }, '& pre': { whiteSpace: 'pre-wrap', bgcolor: 'background.default', p: 1, borderRadius: 1 }, fontSize: 14, mt: 1 }}>
-                <ReactMarkdown>{card.description || '_No description._'}</ReactMarkdown>
+                <Markdown>{card.description || '_No description._'}</Markdown>
               </Box>
               {card.labels.length > 0 && (
                 <Stack direction="row" spacing={0.5} sx={{ mt: 1 }}>

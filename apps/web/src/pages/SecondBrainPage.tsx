@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Box, Button, Chip, FormControl, InputLabel, List, ListItemButton, ListItemText, MenuItem, Paper, Select, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
-import ReactMarkdown from 'react-markdown';
+import { Markdown } from '../components/common/Markdown';
 import type { BrainPage, BrainVault, FathomMeetingSummary, Job, Project } from '@sf/shared';
 import { api } from '../api/client';
 import { JobLog } from '../components/common/JobLog';
@@ -135,7 +135,7 @@ export function SecondBrainPage() {
               <Typography variant="caption" color="text.secondary">
                 {pagePath}
               </Typography>
-              <ReactMarkdown>{page.data?.content ?? 'Loading…'}</ReactMarkdown>
+              <Markdown>{page.data?.content ?? 'Loading…'}</Markdown>
             </Box>
           )}
           {!pagePath && !jobs.length && (

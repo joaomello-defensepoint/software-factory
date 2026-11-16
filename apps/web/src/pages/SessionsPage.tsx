@@ -4,7 +4,8 @@ import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogT
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
 import AddIcon from '@mui/icons-material/Add';
-import ReactMarkdown from 'react-markdown';
+import ReplayIcon from '@mui/icons-material/Replay';
+import { Markdown } from '../components/common/Markdown';
 import type { ExternalSession, Project, SessionMessageLine, SessionSummary } from '@sf/shared';
 import { api } from '../api/client';
 import { useServerEvents } from '../api/ws';
@@ -22,6 +23,16 @@ const statusColor: Record<SessionSummary['status'], 'default' | 'info' | 'warnin
   cancelled: 'default',
   interrupted: 'warning',
 };
+
+/** Strips markdown noise (table pipes, emphasis, headings) for one-line previews. */
+function plain(md: string): string {
+  return md
+    .replace(/^\s*\|?[-:| ]+\|?\s*$/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/[*_`#>]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function parseHash(): { sessionId: string | null; cardId: string | null; runId: string | null } {
   const h = location.hash.replace('#', '');
@@ -41,7 +52,7 @@ function Transcript({ messages, pending }: { messages: SessionMessageLine[]; pen
       {messages.map((m) => {
         if (m.type === 'tool_use' || m.type === 'tool_result' || m.type === 'system') {
           return (
-            <Box key={m.id} sx={{ fontFamily: mono, fontSize: 11.5, color: m.type === 'system' ? 'warning.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word', pl: 1, borderLeft: '2px solid', borderColor: m.type === 'tool_use' ? 'primary.main' : 'divider', maxHeight: 160, overflow: 'auto' }}>
+            <Box key={m.id} sx={{ flexShrink: 0, fontFamily: mono, fontSize: 11.5, color: m.type === 'system' ? 'warning.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word', pl: 1, borderLeft: '2px solid', borderColor: m.type === 'tool_use' ? 'primary.main' : 'divider', maxHeight: 160, overflow: 'auto' }}>
               {m.type === 'tool_use' ? '→ ' : m.type === 'tool_result' ? '← ' : '· '}
               {m.text}
             </Box>
@@ -49,9 +60,9 @@ function Transcript({ messages, pending }: { messages: SessionMessageLine[]; pen
         }
         const mine = m.type === 'user';
         return (
-          <Box key={m.id} sx={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%', bgcolor: mine ? 'primary.dark' : 'background.default', color: mine ? 'primary.contrastText' : 'text.primary', borderRadius: 2, px: 1.5, py: 0.75, fontSize: 13, '& p': { my: 0.5 }, '& pre': { whiteSpace: 'pre-wrap', fontSize: 12 } }}>
+          <Box key={m.id} sx={{ flexShrink: 0, alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: mine ? '85%' : '100%', minWidth: 0, bgcolor: mine ? 'primary.dark' : 'background.default', color: mine ? 'primary.contrastText' : 'text.primary', borderRadius: 2, px: 1.5, py: 0.75, fontSize: 13 }}>
             {m.type === 'question' && <Chip label="question for you → Requests tab" color="warning" size="small" sx={{ mb: 0.5 }} />}
-            <ReactMarkdown>{m.text}</ReactMarkdown>
+            {mine ? <Box sx={{ whiteSpace: 'pre-wrap' }}>{m.text}</Box> : <Markdown>{m.text}</Markdown>}
           </Box>
         );
       })}
@@ -111,6 +122,7 @@ export function SessionsPage() {
     mutationFn: () => api.post<SessionSummary>(`/api/sessions/${selected}/resume`),
     onSuccess: (s) => {
       qc.invalidateQueries({ queryKey: ['sessions'] });
+      qc.invalidateQueries({ queryKey: ['session', s.id] });
       setSelected(s.id);
       location.hash = `sessions/${s.id}`;
     },
@@ -162,7 +174,7 @@ export function SessionsPage() {
                       </Typography>
                     </Box>
                   }
-                  secondary={`${s.model || ''} · ${timeAgo(s.startedAt)} · $${s.costUsd.toFixed(2)}${s.lastText ? ` · ${s.lastText.slice(0, 70)}` : ''}`}
+                  secondary={`${s.model || ''} · ${timeAgo(s.startedAt)} · $${s.costUsd.toFixed(2)}${s.lastText ? ` · ${plain(s.lastText).slice(0, 70)}` : ''}`}
                 />
               </ListItemButton>
             ))}
@@ -223,9 +235,9 @@ export function SessionsPage() {
                 </Button>
               )}
               {!currentLive && current.claudeSessionId && (
-                <Tooltip title="Continue this Claude session as a chat (same context, same folder)">
-                  <Button size="small" variant="outlined" color={current.status === 'interrupted' ? 'warning' : 'inherit'} onClick={() => resumeOwn.mutate()} disabled={resumeOwn.isPending}>
-                    Resume
+                <Tooltip title={current.kind === 'chat' ? 'Reopen this chat with its full context: your next message continues the same Claude session' : 'Continue this Claude session as a chat (same context, same folder)'}>
+                  <Button size="small" variant="contained" color={current.status === 'interrupted' ? 'warning' : 'primary'} startIcon={<ReplayIcon />} onClick={() => resumeOwn.mutate()} disabled={resumeOwn.isPending}>
+                    {current.kind === 'chat' ? 'Continue' : 'Resume as chat'}
                   </Button>
                 </Tooltip>
               )}
@@ -235,7 +247,7 @@ export function SessionsPage() {
                 This session is waiting for your answer in the Requests tab.
               </Alert>
             )}
-            <Transcript messages={liveMessages} pending={currentLive && current.status === 'running'} />
+            <Transcript messages={liveMessages} pending={currentLive && current.status === 'running' && liveMessages.length > 0 && liveMessages[liveMessages.length - 1].type !== 'assistant'} />
             {current.interactive && currentLive && (
               <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1 }}>
                 <TextField

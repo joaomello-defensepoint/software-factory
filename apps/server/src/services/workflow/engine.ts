@@ -307,7 +307,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
         state.outputs[step.id] = `Decision: ${verdict.decision}\n\n${verdict.rationale || ''}${verdict.instructions ? `\n\nInstructions:\n${verdict.instructions}` : ''}`;
         state.decisions.push({ iteration: run.iteration, decision: verdict.decision, rationale: verdict.rationale || '' });
         saveRunState(runId, state);
-        appendEvent(runId, 'decision', `Maestro: ${verdict.decision} — ${(verdict.rationale || '').slice(0, 500)}`, { step: step.id, role: role.id, data: verdict });
+        appendEvent(runId, 'decision', `Maestro: ${verdict.decision} — ${(verdict.rationale || '').slice(0, 4000)}`, { step: step.id, role: role.id, data: verdict });
 
         if (verdict.decision === 'rework') {
           if (run.iteration >= workflow.maxIterations) {
