@@ -15,6 +15,7 @@ export function runStatusColor(status: Card['runStatus']): 'default' | 'info' | 
     case 'queued':
       return 'info';
     case 'waiting_human':
+    case 'interrupted':
       return 'warning';
     case 'succeeded':
       return 'success';

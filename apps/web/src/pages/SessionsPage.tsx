@@ -20,6 +20,7 @@ const statusColor: Record<SessionSummary['status'], 'default' | 'info' | 'warnin
   done: 'success',
   failed: 'error',
   cancelled: 'default',
+  interrupted: 'warning',
 };
 
 function parseHash(): { sessionId: string | null; cardId: string | null; runId: string | null } {
@@ -106,6 +107,15 @@ export function SessionsPage() {
     onError: (e: Error) => setError(e.message),
   });
   const end = useMutation({ mutationFn: () => api.post(`/api/sessions/${selected}/end`), onSuccess: () => qc.invalidateQueries({ queryKey: ['sessions'] }) });
+  const resumeOwn = useMutation({
+    mutationFn: () => api.post<SessionSummary>(`/api/sessions/${selected}/resume`),
+    onSuccess: (s) => {
+      qc.invalidateQueries({ queryKey: ['sessions'] });
+      setSelected(s.id);
+      location.hash = `sessions/${s.id}`;
+    },
+    onError: (e: Error) => setError(e.message),
+  });
   const resume = useMutation({
     mutationFn: (s: ExternalSession) => api.post<SessionSummary>('/api/sessions/chat', { prompt: 'Continue where we left off. Summarize the current state in two lines, then wait for my instructions.', title: `Resumed: ${s.summary.slice(0, 50)}`, cwd: s.cwd, resume: s.sessionId }),
     onSuccess: (s) => {
@@ -211,6 +221,13 @@ export function SessionsPage() {
                 <Button size="small" color="error" startIcon={<StopIcon />} onClick={() => end.mutate()}>
                   End
                 </Button>
+              )}
+              {!currentLive && current.claudeSessionId && (
+                <Tooltip title="Continue this Claude session as a chat (same context, same folder)">
+                  <Button size="small" variant="outlined" color={current.status === 'interrupted' ? 'warning' : 'inherit'} onClick={() => resumeOwn.mutate()} disabled={resumeOwn.isPending}>
+                    Resume
+                  </Button>
+                </Tooltip>
               )}
             </Box>
             {current.status === 'waiting_human' && (

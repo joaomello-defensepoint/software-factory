@@ -155,7 +155,7 @@ export interface WorkflowDefinition {
   dir?: string;
 }
 
-export type RunStatus = 'queued' | 'running' | 'waiting_human' | 'succeeded' | 'failed' | 'cancelled';
+export type RunStatus = 'queued' | 'running' | 'waiting_human' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
 export interface WorkflowRun {
   id: string;
@@ -253,7 +253,7 @@ export interface Note {
 // ---------- Sessions ----------
 
 export type SessionKind = 'workflow' | 'brain' | 'bridge' | 'chat';
-export type SessionStatus = 'starting' | 'running' | 'waiting_human' | 'done' | 'failed' | 'cancelled';
+export type SessionStatus = 'starting' | 'running' | 'waiting_human' | 'done' | 'failed' | 'cancelled' | 'interrupted';
 
 export interface SessionSummary {
   id: string;

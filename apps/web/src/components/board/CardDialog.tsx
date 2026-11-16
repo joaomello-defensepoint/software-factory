@@ -49,6 +49,7 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
     onError: fail,
   });
   const cancel = useMutation({ mutationFn: (runId: string) => api.post(`/api/runs/${runId}/cancel`), onSuccess: invalidate, onError: fail });
+  const resumeRun = useMutation({ mutationFn: (runId: string) => api.post(`/api/runs/${runId}/resume`), onSuccess: () => { setNotice('Run resumed: the agents continue their previous sessions'); invalidate(); }, onError: fail });
   const open = useMutation({ mutationFn: () => api.post<{ ok: boolean; message: string }>(`/api/cards/${id}/open`), onSuccess: (r) => { (r.ok ? setNotice : setError)(r.message); invalidate(); }, onError: fail });
   const ensureWt = useMutation({ mutationFn: () => api.post<{ message: string }>(`/api/cards/${id}/worktree`), onSuccess: (r) => { setNotice(r.message); invalidate(); }, onError: fail });
   const removeWt = useMutation({ mutationFn: () => api.del<{ ok: boolean; message: string }>(`/api/cards/${id}/worktree`, {}), onSuccess: (r) => { (r.ok ? setNotice : setError)(r.message); invalidate(); }, onError: fail });
@@ -209,10 +210,15 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                     Cancel run
                   </Button>
                 )}
+                {!latest.active && ['interrupted', 'failed', 'cancelled'].includes(latest.status) && (
+                  <Button color="warning" variant="contained" onClick={() => resumeRun.mutate(latest.id)} disabled={resumeRun.isPending}>
+                    Resume run
+                  </Button>
+                )}
               </Box>
             )}
             <NotesPanel cardId={card.id} running={!!running} />
-            {latest?.error && <Alert severity="error">{latest.error}</Alert>}
+            {latest?.error && <Alert severity={latest.status === 'interrupted' ? 'warning' : 'error'}>{latest.error}</Alert>}
             {latest?.summary && latest.status === 'succeeded' && (
               <Alert severity="success" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
                 <Box sx={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto', fontSize: 13 }}>{latest.summary}</Box>

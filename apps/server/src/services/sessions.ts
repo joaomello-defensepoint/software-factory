@@ -143,7 +143,7 @@ export function listMessages(sessionId: string, afterId = 0, limit = 1000): Sess
 
 /** On boot: sessions still marked live belonged to a previous server process. */
 export function failStaleSessions(): number {
-  const res = getDb().prepare("UPDATE sessions SET status = 'failed', ended_at = ? WHERE status IN ('starting', 'running', 'waiting_human')").run(nowIso());
+  const res = getDb().prepare("UPDATE sessions SET status = 'interrupted', ended_at = ? WHERE status IN ('starting', 'running', 'waiting_human')").run(nowIso());
   return Number(res.changes);
 }
 
@@ -338,6 +338,22 @@ export function startChat(input: StartChatInput): SessionSummary {
   })();
 
   return session;
+}
+
+/** Continues an ended/interrupted session as a new interactive chat on the same Claude session id. */
+export function resumeSessionAsChat(id: string, prompt?: string): SessionSummary {
+  const s = getSession(id);
+  if (!s) throw new Error('Unknown session');
+  if (!s.claudeSessionId) throw new Error('This session has no Claude session id to resume');
+  if (isChatLive(id)) throw new Error('Session is still live');
+  return startChat({
+    cwd: s.cwd,
+    title: s.title.startsWith('Resumed: ') ? s.title : `Resumed: ${s.title}`,
+    prompt: prompt?.trim() || 'The server was interrupted while you were working. Summarize in a few lines where you stopped and what remains, then continue; if a human decision is needed, ask.',
+    model: s.model,
+    resume: s.claudeSessionId,
+    cardId: s.cardId,
+  });
 }
 
 export function sendChatMessage(id: string, text: string): SessionMessageLine {

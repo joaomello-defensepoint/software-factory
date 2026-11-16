@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { UsageReport, UsagePeriod } from '@sf/shared';
 import { getDb, kvGet, kvList } from '../db.js';
 import { getProjectConfig } from '../services/projects.js';
-import { endChat, externalSessionMessages, getSession, isChatLive, listExternalSessions, listMessages, listSessions, sendChatMessage, startChat } from '../services/sessions.js';
+import { endChat, externalSessionMessages, getSession, isChatLive, listExternalSessions, listMessages, listSessions, resumeSessionAsChat, sendChatMessage, startChat } from '../services/sessions.js';
 
 export async function sessionRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/sessions', async (req) => {
@@ -56,6 +56,10 @@ export async function sessionRoutes(app: FastifyInstance): Promise<void> {
     return sendChatMessage((req.params as { id: string }).id, body.text);
   });
   app.post('/api/sessions/:id/end', async (req) => ({ ended: endChat((req.params as { id: string }).id) }));
+  app.post('/api/sessions/:id/resume', async (req) => {
+    const body = (req.body as { prompt?: string } | undefined) ?? {};
+    return resumeSessionAsChat((req.params as { id: string }).id, body.prompt);
+  });
 
   app.get('/api/usage', async (): Promise<UsageReport> => buildUsageReport());
 }

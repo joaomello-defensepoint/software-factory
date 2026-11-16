@@ -10,7 +10,7 @@ import { fathomConfigured, fathomMode } from '../services/fathom.js';
 import * as brain from '../services/brain.js';
 import { getJob, listJobs } from '../services/jobs.js';
 import { deleteWorkflow, deleteWorkflowFile, duplicateWorkflow, getWorkflow, listWorkflowFiles, listWorkflows, saveWorkflowFile } from '../services/workflow/definitions.js';
-import { cancelRun, computeDiff, isRunActive, startRun } from '../services/workflow/engine.js';
+import { cancelRun, computeDiff, isRunActive, resumeRun, startRun } from '../services/workflow/engine.js';
 import { getRun, listEvents, listRuns } from '../services/workflow/runs.js';
 import { answerRequest, dismissRequest, listRequests } from '../services/workflow/requests.js';
 import { getCard, updateCard } from '../services/cards.js';
@@ -200,6 +200,7 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
     return listEvents((req.params as { id: string }).id, Number(q.after || 0));
   });
   app.post('/api/runs/:id/cancel', async (req) => ({ cancelled: cancelRun((req.params as { id: string }).id) }));
+  app.post('/api/runs/:id/resume', async (req) => resumeRun((req.params as { id: string }).id));
   app.get('/api/runs/:id/diff', async (req, reply) => {
     const run = getRun((req.params as { id: string }).id);
     if (!run) return reply.code(404).send({ error: 'Unknown run' });

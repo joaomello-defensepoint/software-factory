@@ -71,6 +71,10 @@ implement ──► review ──► challenge (2 advocates, debate) ──► d
   course correction you write while the implementer works also shapes the reviewer, the advocates and
   the maestro. The run log shows when each note was delivered.
 - **Cancel** from the run tab; **questions and permissions** arrive in the Requests tab.
+- **Resume**: a run that was interrupted (server stopped or crashed), failed or cancelled can be resumed from the
+  card. Each role's Claude session id is recorded as soon as the session starts, so the resumed step continues the
+  same conversation with a note that the server was interrupted; later steps run normally. Any session in the
+  Sessions tab can also be continued as a chat.
 
 ## Design choices worth discussing
 

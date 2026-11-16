@@ -61,6 +61,27 @@ export async function startRun(input: { cardId: string; workflowId: string; proj
   return getRun(run.id)!;
 }
 
+/** Continues an interrupted/failed/cancelled run from the step it was on, resuming each role's Claude session. */
+export async function resumeRun(runId: string): Promise<WorkflowRun> {
+  const run = getRun(runId);
+  if (!run) throw new Error('Unknown run');
+  if (isRunActive(runId)) throw new Error('Run is still active');
+  if (!['interrupted', 'failed', 'cancelled'].includes(run.status)) throw new Error(`Run is ${run.status}; only interrupted, failed or cancelled runs can be resumed`);
+  const card = getCard(run.cardId);
+  if (!card) throw new Error('Card no longer exists');
+  const workflow = getWorkflow(run.workflowId);
+  if (!workflow) throw new Error(`Workflow ${run.workflowId} no longer exists`);
+  const project = getProjectConfig(run.projectId);
+  if (!project) throw new Error(`Project ${run.projectId} no longer exists`);
+  if (!fs.existsSync(run.worktreePath)) throw new Error(`Worktree is gone: ${run.worktreePath}`);
+  const startStep = run.currentStep && workflow.steps.some((s) => s.id === run.currentStep) ? run.currentStep : workflow.steps[0].id;
+  updateRun(runId, { status: 'queued', error: null, finishedAt: null, currentStep: startStep });
+  updateCard(card.id, { runId, column: 'in_progress' });
+  appendEvent(runId, 'run_started', `Resuming run at step "${startStep}" (iteration ${run.iteration}); role sessions continue where they stopped`);
+  void execute(runId, workflow, project, card, { startStep, resumed: true }).catch((e) => logger.error({ err: e, run: runId }, 'resumed run crashed'));
+  return getRun(runId)!;
+}
+
 export function cancelRun(runId: string): boolean {
   const ac = active.get(runId);
   if (!ac) return false;
@@ -86,12 +107,14 @@ interface StepContext {
   steps: Record<string, { output: string }>;
 }
 
-async function execute(runId: string, workflow: WorkflowDefinition, project: ProjectConfig, card: Card): Promise<void> {
+async function execute(runId: string, workflow: WorkflowDefinition, project: ProjectConfig, card: Card, opts: { startStep?: string; resumed?: boolean } = {}): Promise<void> {
   const ac = new AbortController();
   active.set(runId, ac);
   const run = getRun(runId)!;
   const state = getRunState(runId);
-  let costUsd = 0;
+  let costUsd = run.costUsd || 0;
+  /** While resuming: the first step executed continues each role's previous session instead of starting fresh. */
+  let resumeNext = !!opts.resumed;
   updateRun(runId, { status: 'running' });
   await moveTrackerToInProgress(card, runId);
 
@@ -168,6 +191,10 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
 
   const runRole = async (step: WorkflowStep, role: WorkflowRole, prompt: string, extra: { outputSchema?: Record<string, unknown>; resume?: string | null } = {}) => {
     const editTools = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+    if (resumeNext && state.sessions[role.id]) {
+      extra = { ...extra, resume: state.sessions[role.id] };
+      prompt = `(The server was interrupted while you were working on this step; your session has been resumed and the worktree is exactly as you left it. Do not redo finished work — check the current state and continue.)\n\n${prompt}`;
+    }
     const sessionKey = `${step.id}:${role.id}:${run.iteration}`;
     // Notes written while the session runs reach the agent right after its next tool call.
     markDelivered(undeliveredNotes(card.id, sessionKey).map((n) => n.id), sessionKey); // notes already in the prompt
@@ -196,7 +223,12 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
       abortController: ac,
       hooks: { PostToolUse: [{ hooks: [steeringHook as any] }] },
       meta: { kind: 'workflow', title: `${card.key || card.title.slice(0, 40)} · ${role.name} (${step.name}, iteration ${run.iteration})`, cardId: card.id, runId, role: role.id, step: step.id },
-      onInit: (info) => appendEvent(runId, 'log', `session ${info.sessionId} · model ${info.model} · ${info.skills.length} skills · mcp: ${info.mcpServers.join(', ') || 'none'}`, { step: step.id, role: role.id }),
+      onInit: (info) => {
+        // Remember the session as soon as it exists so an interrupted run can resume it.
+        state.sessions[role.id] = info.sessionId;
+        saveRunState(runId, state);
+        appendEvent(runId, 'log', `session ${info.sessionId} · model ${info.model} · ${info.skills.length} skills · mcp: ${info.mcpServers.join(', ') || 'none'}`, { step: step.id, role: role.id });
+      },
       onText: (t) => appendEvent(runId, 'assistant_text', t.length > 4000 ? `${t.slice(0, 4000)}…` : t, { step: step.id, role: role.id }),
       onTool: (name, input, id) => appendEvent(runId, 'tool_use', `${name} ${summarizeTool(name, input)}`, { step: step.id, role: role.id, data: { id, name, input: truncate(input) } }),
     });
@@ -212,7 +244,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
   };
 
   try {
-    let stepIndex = 0;
+    let stepIndex = Math.max(0, opts.startStep ? workflow.steps.findIndex((s) => s.id === opts.startStep) : 0);
     let decided = false;
     while (stepIndex < workflow.steps.length) {
       if (ac.signal.aborted) throw new Error('cancelled');
@@ -289,6 +321,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
             run.iteration += 1;
             saveRunState(runId, state);
             appendEvent(runId, 'iteration', `Rework requested → iteration ${run.iteration}`, { step: step.id, data: { instructions: state.feedback } });
+            resumeNext = false;
             stepIndex = 0;
             continue;
           }
@@ -316,6 +349,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
             run.iteration += 1;
             saveRunState(runId, state);
             appendEvent(runId, 'iteration', `Applying the human's decision → iteration ${run.iteration}`, { step: step.id });
+            resumeNext = false;
             stepIndex = 0;
             continue;
           }
@@ -343,6 +377,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
         }
       }
       appendEvent(runId, 'step_finished', `Step "${step.name}" finished`, { step: step.id });
+      resumeNext = false;
       stepIndex++;
     }
 

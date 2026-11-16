@@ -27,8 +27,9 @@ starts the server, opens http://127.0.0.1:4100 in the browser, and stops when yo
 
 Stopping and restarting is safe: cards, runs, requests and settings live in `~/.claude/software-factory/factory.db`
 and `config.yaml`, workflow definitions in `~/.claude/software-factory/workflows`. A workflow that was mid-run when
-the server stopped is marked *failed* on the next boot (its worktree keeps the work; starting the workflow again
-tells the implementer what is already there). If `npm install` warns that esbuild's install script was skipped,
+the server stopped (or crashed) is marked *interrupted* on the next boot. Open the card → Workflow run → **Resume
+run**: the engine restarts at the step that was running and each role continues its own Claude session (same
+context, same worktree). Chats and other sessions have a **Resume** button in the Sessions tab. If `npm install` warns that esbuild's install script was skipped,
 run `npm install-scripts approve esbuild && npm rebuild esbuild` once.
 
 Prerequisites already on this machine: `claude` (Claude Code CLI, logged in), `az` (logged in with

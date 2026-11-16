@@ -112,7 +112,7 @@ export function listEvents(runId: string, afterId = 0, limit = 2000): RunEvent[]
 /** On boot: anything still "running" belonged to a previous server process. */
 export function failStaleRuns(): number {
   const res = getDb()
-    .prepare("UPDATE runs SET status = 'failed', error = 'Server restarted while the run was in progress', finished_at = ? WHERE status IN ('queued', 'running', 'waiting_human')")
+    .prepare("UPDATE runs SET status = 'interrupted', error = 'The server stopped while this run was in progress. Resume it from the card: the agents continue their own sessions in the same worktree.', finished_at = ? WHERE status IN ('queued', 'running', 'waiting_human')")
     .run(nowIso());
   return Number(res.changes);
 }
