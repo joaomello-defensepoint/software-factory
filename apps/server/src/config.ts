@@ -25,6 +25,9 @@ export const DEFAULT_PROJECTS_ROOT = path.join(home, 'Desktop', 'indysoft');
 
 export const PORT = Number(process.env.PORT || 4100);
 
+/** Emails that identify the user across trackers (Llama member lookup, display). */
+export const IDENTITY_EMAILS = (process.env.SF_IDENTITY_EMAILS || 'joao.mello@indysoft.com,joao@defensepoint.com').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+
 export type IntegrationMode = 'mcp' | 'rest';
 
 export const env = {
@@ -37,7 +40,7 @@ export const env = {
     /** Site UUID, hostname or URL accepted by the Atlassian MCP; defaults to the hostname of JIRA_BASE_URL. */
     cloudId: process.env.JIRA_CLOUD_ID || new URL(process.env.JIRA_BASE_URL || 'https://indysoftco.atlassian.net').hostname,
     mcpPrefix: process.env.JIRA_MCP_PREFIX || 'mcp__claude_ai_Atlassian_MCP__',
-    jql: process.env.JIRA_SYNC_JQL || 'assignee = currentUser() AND statusCategory != Done AND issuetype != Epic ORDER BY updated DESC',
+    jql: process.env.JIRA_SYNC_JQL || 'assignee in (currentUser(), \"joao.mello@indysoft.com\") AND statusCategory != Done AND issuetype != Epic ORDER BY updated DESC',
     project: process.env.JIRA_DEFAULT_PROJECT || 'IWC',
   },
   fathom: {

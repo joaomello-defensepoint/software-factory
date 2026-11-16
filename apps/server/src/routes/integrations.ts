@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { IntegrationStatus } from '@sf/shared';
-import { env } from '../config.js';
+import { IDENTITY_EMAILS, env } from '../config.js';
 import { run as runShell } from '../services/shell.js';
 import * as jira from '../services/jira.js';
 import * as llama from '../services/llama.js';
@@ -17,7 +17,6 @@ import { getCard, updateCard } from '../services/cards.js';
 import { getProjectConfig, loadConfig } from '../services/projects.js';
 import { hub } from '../events.js';
 
-const IDENTITY_EMAILS = [env.jira.email, 'joao.mello@indysoft.com', 'joao@defensepoint.com'].filter(Boolean);
 
 export async function registerIntegrations(app: FastifyInstance): Promise<void> {
   // ----- status -----

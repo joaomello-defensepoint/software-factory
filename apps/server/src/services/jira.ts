@@ -161,7 +161,7 @@ async function mcpSearchIssues(jql: string, max: number): Promise<JiraIssue[]> {
   const out: JiraIssue[] = [];
   let token: string | null = null;
   do {
-    const res = await callMcpJson(mcpTool('searchJiraIssuesUsingJql'), { cloudId: env.jira.cloudId, jql, maxResults: 50, fields: FIELDS, ...(token ? { nextPageToken: token } : {}) }, mcpOpts);
+    const res = await callMcpJson(mcpTool('searchJiraIssuesUsingJql'), { cloudId: env.jira.cloudId, jql, maxResults: 20, fields: FIELDS, ...(token ? { nextPageToken: token } : {}) }, mcpOpts);
     const { nodes, nextCursor } = mcpIssueNodes(res);
     out.push(...nodes.map(mapIssue));
     token = nextCursor;

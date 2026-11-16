@@ -69,15 +69,16 @@ export async function callLlama<T = any>(name: string, args: Record<string, unkn
     .map((b: any) => b.text)
     .join('\n');
   if (res.isError) throw new Error(`Llama ${name}: ${text.slice(0, 400)}`);
-  // Responses carry a "[Session: ...]" header before the JSON body.
-  const jsonStart = text.indexOf('{');
-  const arrStart = text.indexOf('[');
+  // Responses carry a "[Session: ...]" header line before the JSON body.
+  const body = text.replace(/^\s*\[Session:[^\]]*\]\s*/i, '').trim();
+  const jsonStart = body.indexOf('{');
+  const arrStart = body.indexOf('[');
   const start = jsonStart < 0 ? arrStart : arrStart < 0 ? jsonStart : Math.min(jsonStart, arrStart);
-  if (start < 0) return text as unknown as T;
+  if (start < 0) return body as unknown as T;
   try {
-    return JSON.parse(text.slice(start)) as T;
+    return JSON.parse(body.slice(start)) as T;
   } catch {
-    return text as unknown as T;
+    return body as unknown as T;
   }
 }
 
@@ -108,20 +109,26 @@ function mapIssue(raw: any): LlamaIssue {
   };
 }
 
-export async function findMyUserId(emails: string[]): Promise<string | null> {
+/** Every Llama member whose email matches one of the user's identities (old and new accounts). */
+export async function findMyUserIds(emails: string[]): Promise<Array<{ id: string; email: string }>> {
   const members: any = await callLlama('llama_list_members');
   const list: any[] = Array.isArray(members) ? members : members?.members || members?.data || [];
   const wanted = emails.map((e) => e.toLowerCase());
-  const me = list.find((m) => wanted.includes(String(m.email || m.user?.email || '').toLowerCase()));
-  return me ? String(me.id || me.userId || me.user?.id) : null;
+  return list
+    .map((m) => ({ id: String(m.id || m.userId || m.user?.id || ''), email: String(m.email || m.user?.email || '').toLowerCase() }))
+    .filter((m) => m.id && wanted.includes(m.email));
 }
 
 export async function searchMyIssues(emails: string[]): Promise<LlamaIssue[]> {
-  const uid = await findMyUserId(emails);
-  if (!uid) throw new Error(`Could not find a Llama member matching ${emails.join(', ')}`);
-  const res: any = await callLlama('llama_search', { assigneeId: uid, projectKey: '*', limit: 50 });
-  const hits: any[] = Array.isArray(res) ? res : res?.results || res?.issues || res?.hits || [];
-  return hits.map(mapIssue);
+  const me = await findMyUserIds(emails);
+  if (!me.length) throw new Error(`Could not find a Llama member matching ${emails.join(', ')}`);
+  const byKey = new Map<string, LlamaIssue>();
+  for (const m of me) {
+    const res: any = await callLlama('llama_search', { assigneeId: m.id, projectKey: '*', limit: 50 });
+    const hits: any[] = Array.isArray(res) ? res : res?.results || res?.issues || res?.hits || [];
+    for (const h of hits.map(mapIssue)) if (h.key && !byKey.has(h.key)) byKey.set(h.key, h);
+  }
+  return [...byKey.values()];
 }
 
 export async function getIssue(key: string): Promise<LlamaIssue> {
@@ -191,6 +198,8 @@ export async function syncFromLlama(emails: string[]): Promise<{ imported: numbe
   let imported = 0;
   let updated = 0;
   for (const issue of issues) {
+    // Done/closed work only matters when we already track the card (it moves it to Done); skip the rest.
+    if (columnForLlamaStatus(issue.status) === 'done' && !getCardByKey(issue.key)) continue;
     try {
       const full = issue.description && issue.description.length > 200 ? issue : await getIssue(issue.key).catch(() => issue);
       const r = upsertLlamaCard(full);

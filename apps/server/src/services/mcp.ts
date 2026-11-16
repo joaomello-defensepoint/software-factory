@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { logger } from '../logger.js';
 import { runClaude } from './claude.js';
 
@@ -63,13 +64,27 @@ export async function callMcpTool(tool: string, args: Record<string, unknown>, o
       meta: { kind: 'bridge', title: tool },
     });
     const got = slot.captured ?? slot.fallback;
-    if (got && !got.isError && got.text) return got.text;
+    if (got && !got.isError && got.text) return readSavedOutput(got.text);
     const reason = got?.isError ? `tool error: ${got.text.slice(0, 500)}` : /UNAVAILABLE/i.test(res.text) ? 'tool not available in this Claude session (is the connector authorized in claude.ai?)' : res.isError ? `session error: ${res.subtype} ${res.errors.join('; ')}` : 'no tool result captured';
     lastError = new McpToolError(`${tool}: ${reason}`, tool, got?.text ?? res.text);
     logger.warn({ tool, attempt, reason }, 'mcp bridge call failed');
     if (got?.isError && !/rate|timeout|temporar|unavailable|not available/i.test(got.text)) break; // deterministic failure: do not retry
   }
   throw lastError ?? new McpToolError(`${tool}: unknown failure`, tool, '');
+}
+
+/** Claude Code replaces oversized tool results with a notice pointing at a file; read the file when that happens. */
+function readSavedOutput(text: string): string {
+  const m = /Output has been saved to (\S+?\.txt)/.exec(text) || /saved to (\/[^\s"']+)/.exec(text);
+  if (m) {
+    try {
+      const saved = fs.readFileSync(m[1], 'utf8');
+      if (saved.trim()) return saved;
+    } catch (e) {
+      logger.warn({ path: m[1], err: String(e) }, 'could not read saved tool output');
+    }
+  }
+  return text;
 }
 
 /** Calls a tool and parses the JSON it returns (leading non-JSON noise tolerated). */
