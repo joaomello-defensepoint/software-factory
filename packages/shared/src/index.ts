@@ -387,12 +387,21 @@ export type ServerEvent =
   | { type: 'brain.changed'; vaultId: string }
   | { type: 'job.log'; jobId: string; line: string }
   | { type: 'job.done'; jobId: string; ok: boolean; message?: string }
-  | { type: 'toast'; level: 'info' | 'success' | 'warning' | 'error'; message: string };
+  | { type: 'toast'; level: 'info' | 'success' | 'warning' | 'error'; message: string }
+  | { type: 'sync.changed'; source: 'jira' | 'llama'; running: boolean };
+
+export interface SyncState {
+  running: boolean;
+  lastSync: string | null;
+  lastError: string | null;
+  lastResult: { imported: number; updated: number; total: number } | null;
+  intervalMinutes: number;
+}
 
 export interface IntegrationStatus {
-  jira: { configured: boolean; mode: 'mcp' | 'rest'; email: string | null; baseUrl: string | null; project: string | null };
+  jira: { configured: boolean; mode: 'mcp' | 'rest'; email: string | null; baseUrl: string | null; project: string | null; sync: SyncState };
   fathom: { configured: boolean; mode: 'mcp' | 'rest' };
   ado: { configured: boolean; orgUrl: string | null; loggedIn: boolean | null };
-  llama: { configured: boolean; org: string | null; project: string | null };
+  llama: { configured: boolean; org: string | null; project: string | null; sync: SyncState };
   claude: { version: string | null };
 }

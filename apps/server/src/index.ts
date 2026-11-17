@@ -20,6 +20,7 @@ import { abortAllRuns } from './services/workflow/engine.js';
 import { closeLlama } from './services/llama.js';
 import { abortAllChats, failStaleSessions } from './services/sessions.js';
 import { sessionRoutes } from './routes/sessions.js';
+import { startAutoSync, stopAutoSync } from './services/autosync.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -63,11 +64,13 @@ async function main(): Promise<void> {
 
   await app.listen({ port: PORT, host: '127.0.0.1' });
   logger.info(`Software Factory server listening on http://127.0.0.1:${PORT} (state in ${SF_HOME})`);
+  startAutoSync();
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    stopAutoSync();
     const aborted = abortAllRuns() + abortAllChats();
     logger.info(`${signal}: shutting down${aborted ? ` (aborting ${aborted} running workflow session(s))` : ''}`);
     await closeLlama().catch(() => undefined);

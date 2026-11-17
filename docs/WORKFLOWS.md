@@ -65,6 +65,10 @@ implement ──► review ──► challenge (2 advocates, debate) ──► d
 - **Drop a card into In Progress** to start `board.defaultWorkflow` (`config.yaml`; `autoStart: false`
   disables it). The card needs a project; the base branch defaults to the project's first one.
   Dragging the card out of In Progress cancels the run.
+- **Board sync** runs by itself every `board.syncIntervalMinutes` (default 10; `0` disables it) for Jira
+  and Llama, starting shortly after the server boots. The Sync buttons force one; hover them for the last
+  result or error. Jira's search index can lag a minute behind a freshly created issue, so a manual sync
+  right after creating a ticket may miss it; the next automatic pass picks it up.
 - **Notes to the agents** (card dialog, both tabs): free text you can drop at any time. Before a run
   they are read by every role; during a run they reach the active agent right after its next tool
   call (PostToolUse hook `additionalContext`) and are prepended to every later step's prompt, so a

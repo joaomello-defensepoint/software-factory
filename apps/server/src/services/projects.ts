@@ -27,6 +27,8 @@ export interface FactoryConfig {
     defaultWorkflow: string;
     /** Set false to only start workflows from the card dialog. */
     autoStart: boolean;
+    /** Minutes between automatic Jira/Llama board syncs (0 disables). */
+    syncIntervalMinutes: number;
     /** Jira status names that land in each column on sync (case-insensitive). */
     jiraStatusToColumn: Record<string, string[]>;
     /** Jira transition names to attempt when a card enters a column (optional). */
@@ -108,6 +110,7 @@ export function defaultConfig(): FactoryConfig {
     board: {
       defaultWorkflow: 'maestro-loop',
       autoStart: true,
+      syncIntervalMinutes: 10,
       // IWC flow: NEW/READY → Triaged → In Progress → Code Review → QA Ready → Done
       jiraStatusToColumn: {
         backlog: ['NEW', 'READY', 'Triaged', 'To Do', 'Open', 'Backlog', 'Selected for Development'],

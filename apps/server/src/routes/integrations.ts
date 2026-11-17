@@ -16,6 +16,7 @@ import { answerRequest, dismissRequest, listRequests } from '../services/workflo
 import { getCard, updateCard } from '../services/cards.js';
 import { getProjectConfig, loadConfig } from '../services/projects.js';
 import { hub } from '../events.js';
+import { runSync, syncState } from '../services/autosync.js';
 
 
 export async function registerIntegrations(app: FastifyInstance): Promise<void> {
@@ -23,10 +24,10 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
   app.get('/api/integrations/status', async (): Promise<IntegrationStatus> => {
     const claude = await runShell('claude', ['--version'], { timeoutMs: 10_000 });
     return {
-      jira: { configured: jira.jiraConfigured(), mode: jira.jiraMode(), email: env.jira.email || null, baseUrl: env.jira.baseUrl || null, project: env.jira.project || null },
+      jira: { configured: jira.jiraConfigured(), mode: jira.jiraMode(), email: env.jira.email || null, baseUrl: env.jira.baseUrl || null, project: env.jira.project || null, sync: syncState('jira') },
       fathom: { configured: fathomConfigured(), mode: fathomMode() },
       ado: { configured: true, orgUrl: ado.adoOrgUrl(), loggedIn: await ado.adoLoggedIn().catch(() => false) },
-      llama: { configured: llama.llamaConfigured(), org: env.llama.org, project: env.llama.project },
+      llama: { configured: llama.llamaConfigured(), org: env.llama.org, project: env.llama.project, sync: syncState('llama') },
       claude: { version: claude.code === 0 ? claude.stdout.trim() : null },
     };
   });
@@ -34,7 +35,7 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
   // ----- Jira -----
   app.post('/api/jira/sync', async (req) => {
     const body = (req.body as { jql?: string } | undefined) ?? {};
-    return jira.syncFromJira(body.jql || undefined);
+    return runSync('jira', { jql: body.jql || undefined, trigger: 'manual' });
   });
   /** Verifies the Jira connection end to end (one bridge call) and reports who the connector is authorized as. */
   app.post('/api/integrations/jira/check', async () => {
@@ -77,7 +78,9 @@ export async function registerIntegrations(app: FastifyInstance): Promise<void> 
   });
 
   // ----- Llama -----
-  app.post('/api/llama/sync', async () => llama.syncFromLlama(IDENTITY_EMAILS));
+  app.post('/api/llama/sync', async () => runSync('llama', { trigger: 'manual' }));
+  /** Last sync time/result/error per source, for the board indicator. */
+  app.get('/api/sync/state', async () => ({ jira: syncState('jira'), llama: syncState('llama') }));
   app.post('/api/llama/issues', async (req) => {
     const body = z
       .object({

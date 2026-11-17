@@ -384,6 +384,7 @@ export async function syncFromJira(jql = env.jira.jql): Promise<{ imported: numb
   const issues = await searchIssues(jql);
   let imported = 0;
   let updated = 0;
+  let total = issues.length;
   for (const issue of issues) {
     const r = upsertIssueAsCard(issue);
     if (r.created) imported++;
@@ -394,6 +395,7 @@ export async function syncFromJira(jql = env.jira.jql): Promise<{ imported: numb
   if (known.length) {
     try {
       const refreshed = await searchIssues(`key in (${known.map((c) => c.key).join(', ')})`, 100);
+      total += refreshed.length;
       for (const issue of refreshed) {
         upsertIssueAsCard(issue);
         updated++;
@@ -405,5 +407,5 @@ export async function syncFromJira(jql = env.jira.jql): Promise<{ imported: numb
   kvSet('jira:lastSync', nowIso());
   kvSet('jira:syncs', kvGet<number>('jira:syncs', 0) + 1);
   hub.broadcast({ type: 'cards.changed' });
-  return { imported, updated, total: issues.length };
+  return { imported, updated, total };
 }

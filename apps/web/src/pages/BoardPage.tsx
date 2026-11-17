@@ -5,9 +5,11 @@ import SyncIcon from '@mui/icons-material/Sync';
 import AddIcon from '@mui/icons-material/Add';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import { DndContext, DragOverlay, PointerSensor, closestCorners, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from '@dnd-kit/core';
-import type { Card, ColumnId, Project, WorkflowDefinition } from '@sf/shared';
+import type { Card, ColumnId, Project, SyncState, WorkflowDefinition } from '@sf/shared';
 import { COLUMNS } from '@sf/shared';
 import { api } from '../api/client';
+import { useServerEvents } from '../api/ws';
+import { timeAgo } from '../components/common/format';
 import { Column } from '../components/board/Column';
 import { CardItem } from '../components/board/CardItem';
 import { CardDialog } from '../components/board/CardDialog';
@@ -43,8 +45,24 @@ export function BoardPage() {
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['cards'] }),
   });
-  const syncJira = useMutation({ mutationFn: () => api.post<{ imported: number; updated: number; total: number }>('/api/jira/sync'), onSuccess: (r) => setMessage({ ok: true, text: `Jira: ${r.total} issues, ${r.imported} new, ${r.updated} updated` }), onError: (e: Error) => setMessage({ ok: false, text: e.message }) });
-  const syncLlama = useMutation({ mutationFn: () => api.post<{ imported: number; updated: number; total: number }>('/api/llama/sync'), onSuccess: (r) => setMessage({ ok: true, text: `Llama: ${r.total} issues, ${r.imported} new, ${r.updated} updated` }), onError: (e: Error) => setMessage({ ok: false, text: e.message }) });
+  useServerEvents((e) => {
+    if (e.type === 'sync.changed') qc.invalidateQueries({ queryKey: ['sync-state'] });
+  });
+  const syncQuery = useQuery({ queryKey: ['sync-state'], queryFn: () => api.get<{ jira: SyncState; llama: SyncState }>('/api/sync/state'), refetchInterval: 60_000 });
+  const refreshSync = () => qc.invalidateQueries({ queryKey: ['sync-state'] });
+  const syncJira = useMutation({ mutationFn: () => api.post<{ imported: number; updated: number; total: number }>('/api/jira/sync'), onSuccess: (r) => setMessage({ ok: true, text: `Jira: ${r.total} issues, ${r.imported} new, ${r.updated} updated` }), onError: (e: Error) => setMessage({ ok: false, text: e.message }), onSettled: refreshSync });
+  const syncLlama = useMutation({ mutationFn: () => api.post<{ imported: number; updated: number; total: number }>('/api/llama/sync'), onSuccess: (r) => setMessage({ ok: true, text: `Llama: ${r.total} issues, ${r.imported} new, ${r.updated} updated` }), onError: (e: Error) => setMessage({ ok: false, text: e.message }), onSettled: refreshSync });
+  const jiraSync = syncQuery.data?.jira;
+  const llamaSync = syncQuery.data?.llama;
+  const syncHint = (s: SyncState | undefined) => {
+    if (!s) return '';
+    const parts: string[] = [];
+    if (s.lastSync) parts.push(`last sync ${timeAgo(s.lastSync)}`);
+    if (s.lastResult) parts.push(`${s.lastResult.total} issues, ${s.lastResult.imported} new`);
+    parts.push(s.intervalMinutes > 0 ? `auto every ${s.intervalMinutes} min` : 'auto sync off');
+    if (s.lastError) parts.push(`last error: ${s.lastError}`);
+    return parts.join(' · ');
+  };
   const archive = useMutation({ mutationFn: () => api.post<{ archived: number }>('/api/cards/archive-done'), onSuccess: (r) => setMessage({ ok: true, text: `${r.archived} card(s) archived` }) });
   const openVsCode = useMutation({ mutationFn: (card: Card) => api.post<{ ok: boolean; message: string }>(`/api/cards/${card.id}/open`), onSuccess: (r) => setMessage({ ok: r.ok, text: r.message }), onError: (e: Error) => setMessage({ ok: false, text: e.message }) });
   const archived = useQuery({ queryKey: ['cards', 'archived'], queryFn: () => api.get<Card[]>('/api/cards?archived=1'), enabled: archivedOpen });
@@ -100,12 +118,25 @@ export function BoardPage() {
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setNewOpen(true)}>
           New ticket
         </Button>
-        <Button variant="outlined" startIcon={<SyncIcon />} onClick={() => syncJira.mutate()} disabled={syncJira.isPending}>
-          {syncJira.isPending ? 'Syncing Jira…' : 'Sync Jira'}
-        </Button>
-        <Button variant="outlined" startIcon={<SyncIcon />} onClick={() => syncLlama.mutate()} disabled={syncLlama.isPending}>
-          {syncLlama.isPending ? 'Syncing Llama…' : 'Sync Llama'}
-        </Button>
+        <Tooltip title={syncHint(jiraSync)}>
+          <span>
+            <Button variant="outlined" color={jiraSync?.lastError ? 'warning' : 'primary'} startIcon={<SyncIcon />} onClick={() => syncJira.mutate()} disabled={syncJira.isPending || !!jiraSync?.running}>
+              {syncJira.isPending || jiraSync?.running ? 'Syncing Jira…' : 'Sync Jira'}
+            </Button>
+          </span>
+        </Tooltip>
+        <Tooltip title={syncHint(llamaSync)}>
+          <span>
+            <Button variant="outlined" color={llamaSync?.lastError ? 'warning' : 'primary'} startIcon={<SyncIcon />} onClick={() => syncLlama.mutate()} disabled={syncLlama.isPending || !!llamaSync?.running}>
+              {syncLlama.isPending || llamaSync?.running ? 'Syncing Llama…' : 'Sync Llama'}
+            </Button>
+          </span>
+        </Tooltip>
+        {jiraSync?.lastSync && (
+          <Typography variant="caption" color={jiraSync.lastError ? 'warning.main' : 'text.secondary'}>
+            synced {timeAgo(jiraSync.lastSync)}{jiraSync.intervalMinutes > 0 ? ` · auto every ${jiraSync.intervalMinutes} min` : ''}
+          </Typography>
+        )}
         <Box sx={{ flex: 1 }} />
         <Chip label="All projects" variant={projectFilter ? 'outlined' : 'filled'} onClick={() => setProjectFilter(null)} />
         {projects.map((p) => (
