@@ -115,7 +115,7 @@ function Transcript({ messages, pending }: { messages: SessionMessageLine[]; pen
 
 export function SessionsPage() {
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<'all' | 'live' | 'chat' | 'workflow' | 'brain' | 'logger' | 'history'>('all');
+  const [filter, setFilter] = useState<'all' | 'live' | 'interrupted' | 'chat' | 'workflow' | 'brain' | 'logger' | 'history'>('all');
   const [selected, setSelected] = useState<string | null>(() => parseHash().sessionId);
   const [cardFilter, setCardFilter] = useState<string | null>(() => parseHash().cardId);
   const [externalSel, setExternalSel] = useState<ExternalSession | null>(null);
@@ -198,9 +198,11 @@ export function SessionsPage() {
   const list = useMemo(() => {
     const rows = sessions.data ?? [];
     if (filter === 'live') return rows.filter((s) => ['starting', 'running', 'waiting_human'].includes(s.status));
+    if (filter === 'interrupted') return rows.filter((s) => s.status === 'interrupted');
     if (filter === 'chat' || filter === 'workflow' || filter === 'brain' || filter === 'logger') return rows.filter((s) => s.kind === filter);
     return rows;
   }, [sessions.data, filter]);
+  const interruptedCount = useMemo(() => (sessions.data ?? []).filter((s) => s.status === 'interrupted').length, [sessions.data]);
   const current = detail.data?.session ?? sessions.data?.find((s) => s.id === selected) ?? null;
   const currentLive = !!current && (current.live || ['starting', 'running', 'waiting_human'].includes(current.status));
 
@@ -208,8 +210,15 @@ export function SessionsPage() {
     <Box sx={{ display: 'flex', gap: 2, height: '100%', minHeight: 0 }}>
       <Paper variant="outlined" sx={{ width: 380, minWidth: 320, display: 'flex', flexDirection: 'column' }}>
         <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider', display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
-          {(['all', 'live', 'chat', 'workflow', 'brain', 'logger', 'history'] as const).map((f) => (
-            <Chip key={f} label={f === 'history' ? 'Claude Code history' : f} size="small" variant={filter === f ? 'filled' : 'outlined'} color={filter === f ? 'primary' : 'default'} onClick={() => setFilter(f)} />
+          {(['all', 'live', 'interrupted', 'chat', 'workflow', 'brain', 'logger', 'history'] as const).map((f) => (
+            <Chip
+              key={f}
+              label={f === 'history' ? 'Claude Code history' : f === 'interrupted' && interruptedCount ? `interrupted (${interruptedCount})` : f}
+              size="small"
+              variant={filter === f ? 'filled' : 'outlined'}
+              color={filter === f ? (f === 'interrupted' ? 'warning' : 'primary') : f === 'interrupted' && interruptedCount ? 'warning' : 'default'}
+              onClick={() => setFilter(f)}
+            />
           ))}
           {cardFilter && <Chip label="card filter" size="small" onDelete={() => { setCardFilter(null); location.hash = 'sessions'; }} />}
           <Box sx={{ flex: 1 }} />
