@@ -12,8 +12,8 @@ Summary line opens from the run like any other session.
    updated that day. It also asks Kimai whether the day is already logged (dedup guard).
 2. **Calendar** — `gcal_meetings.py` reads your Google Calendar through the service account and keeps the
    meetings you accepted or organised (top 3). Best effort.
-3. **Slack** — `slack_context.py` reads the configured channels with the Tempo Logger bot token and keeps the
-   threads you took part in. Best effort; see the scopes note below.
+3. **Slack** — `slack_context.py` reads the configured channels **as you** (user token) and keeps the threads
+   you took part in. The bot never joins a channel. Best effort; see the scopes note below.
 4. **Summary** — only this step uses Claude (model `logger.model`, Opus by default). It receives the gathered
    data and returns a Summary line (≤ 300 characters, impersonal, no personal matters, nothing invented)
    plus up to three `#channel: topic` lines. The entry text is then composed by the server with the gathered
@@ -55,14 +55,19 @@ is fine: the run fires when the Mac wakes (same day) or at the next app start wh
 
 `~/.claude/software-factory/logger.env` (mode 600, never in the repo; `apps/logger/variables.example` lists
 the keys): `ADO_PAT`, `KIMAI_TOKEN`, `LLAMA_API_KEY`, `GCAL_SA_KEY` (service-account JSON on one line, single
-quoted), `SLACK_BOT_TOKEN`. Azure DevOps is read with an `az` CLI token when you are logged in, the PAT is
+quoted), `SLACK_USER_TOKEN`, `SLACK_BOT_TOKEN`. Azure DevOps is read with an `az` CLI token when you are logged in, the PAT is
 the fallback. The tab shows which keys are present; values never leave the server and are never in a prompt.
 
-### Slack scopes
+### Slack tokens
 
-The bot needs `chat:write` + `im:write` for the DM (present) and `channels:history`, `groups:history`,
-`users:read` to read the channels, and it must be a member of each channel (`/invite @Tempo Logger`). Until
-those scopes are added the run still succeeds, without a `[Slack]` section, and the warning is shown on the run.
+Two tokens from the same Slack app ("Tempo Logger", api.slack.com/apps → OAuth & Permissions):
+
+- `SLACK_BOT_TOKEN` (`xoxb-…`) with `chat:write` + `im:write`: only used to DM you the status.
+- `SLACK_USER_TOKEN` (`xoxp-…`): the **User OAuth Token**, issued after adding the *User Token Scopes*
+  `channels:history`, `groups:history`, `users:read` and reinstalling the app. It acts as you, so it reads
+  exactly the channels you are in and the bot stays out of them. Without it the run falls back to the bot
+  token (which would need membership and bot scopes); either way a missing scope only drops the `[Slack]`
+  section and shows a warning on the run.
 
 ## Files
 

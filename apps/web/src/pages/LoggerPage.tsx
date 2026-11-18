@@ -12,7 +12,7 @@ import { useServerEvents } from '../api/ws';
 import { timeAgo } from '../components/common/format';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const SECRET_LABELS: Record<string, string> = { ADO_PAT: 'Azure DevOps PAT', KIMAI_TOKEN: 'Kimai', LLAMA_API_KEY: 'Llama', GCAL_SA_KEY: 'Google Calendar', SLACK_BOT_TOKEN: 'Slack bot' };
+const SECRET_LABELS: Record<string, string> = { ADO_PAT: 'Azure DevOps PAT', KIMAI_TOKEN: 'Kimai', LLAMA_API_KEY: 'Llama', GCAL_SA_KEY: 'Google Calendar', SLACK_USER_TOKEN: 'Slack (you, reads)', SLACK_BOT_TOKEN: 'Slack bot (DM)' };
 
 const statusChip = (r: LoggerRun) => {
   const map: Record<LoggerRun['status'], { label: string; color: 'default' | 'success' | 'info' | 'warning' | 'error' }> = {

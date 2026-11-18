@@ -22,7 +22,7 @@ import { runClaude } from './claude.js';
 
 const SP_TZ = 'America/Sao_Paulo';
 const ADO_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
-const SECRET_KEYS = ['ADO_PAT', 'KIMAI_TOKEN', 'LLAMA_API_KEY', 'GCAL_SA_KEY', 'SLACK_BOT_TOKEN'] as const;
+const SECRET_KEYS = ['ADO_PAT', 'KIMAI_TOKEN', 'LLAMA_API_KEY', 'GCAL_SA_KEY', 'SLACK_USER_TOKEN', 'SLACK_BOT_TOKEN'] as const;
 
 // ---------- secrets ----------
 
@@ -227,23 +227,29 @@ async function execute(run: LoggerRun): Promise<void> {
       log(`Calendar meetings: ${gathered.meetings.length}`);
     } else gathered.warnings.push('GCAL_SA_KEY missing: no [Calendar] section');
 
-    // Phase 2 — Slack discussions (best effort)
-    if (secrets.SLACK_BOT_TOKEN && cfg.slackUserId && Object.keys(cfg.slackChannels).length) {
+    // Phase 2 — Slack discussions (best effort): read as the user (SLACK_USER_TOKEN) so the bot stays out of the channels
+    const slackReader = secrets.SLACK_USER_TOKEN ? 'user' : secrets.SLACK_BOT_TOKEN ? 'bot' : null;
+    if (slackReader && cfg.slackUserId && Object.keys(cfg.slackChannels).length) {
       const slackEnv = { ...env, SLACK_USER_ID: cfg.slackUserId, SLACK_CHANNELS: Object.entries(cfg.slackChannels).map(([id, name]) => `${id}:${name.replace(/^#/, '')}`).join(',') };
       const sl = await sh('python3', [path.join(LOGGER_SCRIPTS_DIR, 'slack_context.py')], { cwd: LOGGER_SCRIPTS_DIR, env: slackEnv, timeoutMs: 180_000 });
       const data = parse<{ error?: string; channels: Array<{ name: string; error: string | null; discussions: Array<{ messages: Array<{ name: string; time: string; text: string }> }> }> }>(sl.stdout, { channels: [] });
       fs.writeFileSync(path.join(dir, 'slack.json'), sl.stdout || '{}');
       if (data.error) gathered.warnings.push(`Slack: ${data.error}`);
       const errors = new Set(data.channels.filter((c) => c.error).map((c) => c.error as string));
-      if (errors.size) gathered.warnings.push(`Slack channels unreadable (${[...errors].join(', ')}): the bot needs channels:history, groups:history and users:read, and must be a member of each channel`);
+      if (errors.size)
+        gathered.warnings.push(
+          slackReader === 'user'
+            ? `Slack channels unreadable as you (${[...errors].join(', ')}): the user token needs the user scopes channels:history, groups:history and users:read (reinstall the app after adding them)`
+            : `Slack channels unreadable (${[...errors].join(', ')}): no SLACK_USER_TOKEN in logger.env, and the bot token can only read channels it is a member of with channels:history, groups:history and users:read`,
+        );
       for (const ch of data.channels) {
         for (const d of ch.discussions) {
           const text = d.messages.map((m) => `${m.name}: ${m.text}`).join(' | ');
           gathered.slackCandidates.push(`#${ch.name} ${d.messages[0]?.time ?? ''} ${text.length > 700 ? `${text.slice(0, 700)}…` : text}`);
         }
       }
-      log(`Slack discussions with you: ${gathered.slackCandidates.length}${errors.size ? ' (channels unreadable, see warnings)' : ''}`);
-    } else gathered.warnings.push('Slack reading skipped (no SLACK_BOT_TOKEN, user id or channels configured)');
+      log(`Slack (read as ${slackReader}) discussions with you: ${gathered.slackCandidates.length}${errors.size ? ' (channels unreadable, see warnings)' : ''}`);
+    } else gathered.warnings.push('Slack reading skipped (no SLACK_USER_TOKEN/SLACK_BOT_TOKEN, user id or channels configured)');
 
     // Empty rule
     if (!gathered.commitTop.length && !gathered.llamaLines.length && !gathered.meetings.length && !gathered.slackCandidates.length) {

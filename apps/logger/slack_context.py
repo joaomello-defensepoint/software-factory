@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Gather the day's Slack discussions the user took part in, as JSON (for the [Slack] section).
 
-Replaces the Slack connector the cloud routine used: reads channel history with the
-Tempo Logger bot token. The bot must be a member of each channel (/invite @Tempo Logger).
+Replaces the Slack connector the cloud routine used. Reads channel history as the USER
+(SLACK_USER_TOKEN, xoxp-…, issued to the Tempo Logger app with user scopes channels:history,
+groups:history, users:read) so the bot never has to join a channel; falls back to the bot
+token, which then needs the same bot scopes and channel membership.
 
-Env: SLACK_BOT_TOKEN, SLACK_USER_ID (the user's member id), SLACK_CHANNELS
+Env: SLACK_USER_TOKEN or SLACK_BOT_TOKEN, SLACK_USER_ID (defaults to the token owner), SLACK_CHANNELS
      ("C039TK0Q346:product-dev-qa,C0911MBFNSX:delta-techops" — name optional),
      TARGET_DATE (YYYY-MM-DD, default yesterday in America/Sao_Paulo).
 Output: {"date", "channels": [{"id", "name", "error", "discussions": [{"ts", "messages": [{"user", "name", "time", "text"}]}]}]}
@@ -13,7 +15,7 @@ Best-effort: per-channel errors are reported in the JSON, never fatal.
 import datetime, json, os, sys, time, urllib.parse, urllib.request
 
 SP = datetime.timezone(datetime.timedelta(hours=-3))
-TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+TOKEN = os.environ.get("SLACK_USER_TOKEN") or os.environ.get("SLACK_BOT_TOKEN", "")
 ME = os.environ.get("SLACK_USER_ID", "")
 MAX_MSG_CHARS = 600
 MAX_THREAD_MSGS = 30
@@ -89,9 +91,15 @@ def main():
     day = datetime.date.fromisoformat(date)
     oldest = datetime.datetime.combine(day, datetime.time(0, 0), SP).timestamp()
     latest = datetime.datetime.combine(day, datetime.time(23, 59, 59), SP).timestamp()
-    result = {"date": date, "channels": []}
+    result = {"date": date, "channels": [], "as": "user" if os.environ.get("SLACK_USER_TOKEN") else "bot"}
+    global ME
+    if TOKEN and not ME:
+        try:
+            ME = api("auth.test").get("user_id", "")
+        except Exception as e:
+            result["error"] = f"auth.test: {e}"
     if not TOKEN or not ME:
-        result["error"] = "SLACK_BOT_TOKEN or SLACK_USER_ID missing"
+        result["error"] = result.get("error") or "SLACK_USER_TOKEN/SLACK_BOT_TOKEN or SLACK_USER_ID missing"
         print(json.dumps(result, ensure_ascii=False))
         return
     for spec in [s.strip() for s in os.environ.get("SLACK_CHANNELS", "").split(",") if s.strip()]:
