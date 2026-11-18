@@ -94,7 +94,7 @@ def main():
             continue
         if not e.get("attendees") and not organizer:  # solo/personal block
             continue
-        hhmm = datetime.datetime.fromisoformat(start).astimezone(SP).strftime("%H:%M")
+        hhmm = datetime.datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(SP).strftime("%H:%M")  # py3.9: no "Z" support
         kept.append(f"{hhmm} {summary}")
 
     for line in kept[:TOP_N]:
