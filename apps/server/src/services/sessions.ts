@@ -234,6 +234,14 @@ export interface StartChatInput {
   sessionId?: string | null;
 }
 
+/**
+ * Tools a chat may use without a permission request. Whole MCP servers are allowed by their prefix
+ * (claude.ai connectors such as Jira/Confluence and Fathom, the Llama tracker, Playwright for evidence).
+ */
+export const CHAT_ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebFetch', 'WebSearch', 'ToolSearch', 'Skill', 'TodoWrite', 'mcp__claude_ai_Atlassian_MCP', 'mcp__claude_ai_FathomMCP', 'mcp__llama', 'mcp__playwright'];
+/** Irreversible tracker operations stay out of chats; do them in Jira itself. */
+export const CHAT_DISALLOWED_TOOLS = ['mcp__claude_ai_Atlassian_MCP__executeDestructive'];
+
 /** Starts a free-form session that keeps accepting messages until ended. Questions/permissions go to the Requests tab. */
 export function startChat(input: StartChatInput): SessionSummary {
   const session = input.sessionId
@@ -288,7 +296,8 @@ export function startChat(input: StartChatInput): SessionSummary {
     permissionMode: 'acceptEdits',
     canUseTool,
     settingSources: ['user', 'project', 'local'],
-    allowedTools: input.allowedTools?.length ? input.allowedTools : ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash', 'WebFetch', 'WebSearch', 'ToolSearch', 'Skill', 'TodoWrite'],
+    allowedTools: input.allowedTools?.length ? input.allowedTools : CHAT_ALLOWED_TOOLS,
+    disallowedTools: CHAT_DISALLOWED_TOOLS,
     mcpServers: Object.keys(mcpServers).length ? (mcpServers as any) : undefined,
     resume: input.resume || undefined,
     abortController: chat.abort,
@@ -381,7 +390,8 @@ const INTERRUPTED_PROMPT = 'The server was interrupted while you were working. S
 export function sendChatMessage(id: string, text: string): SessionMessageLine {
   const chat = chats.get(id);
   if (!chat) throw new Error('Session is not live (ended or never interactive); start a new one or resume it');
-  chat.queue.push(text);
+  // Attachments are files on disk ([image: /path] lines added by the UI); tell the agent how to look at them.
+  chat.queue.push(/^\[(image|file): .+\]$/m.test(text) ? `${text}\n\n(The [image: …] / [file: …] lines above are files on this machine; open each with the Read tool to see it.)` : text);
   wake(chat);
   return appendMessage(id, 'user', text);
 }

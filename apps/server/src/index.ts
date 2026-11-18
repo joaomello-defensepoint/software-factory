@@ -20,6 +20,7 @@ import { abortAllRuns } from './services/workflow/engine.js';
 import { closeLlama } from './services/llama.js';
 import { abortAllChats, failStaleSessions } from './services/sessions.js';
 import { sessionRoutes } from './routes/sessions.js';
+import { uploadRoutes } from './routes/uploads.js';
 import { startAutoSync, stopAutoSync } from './services/autosync.js';
 
 async function main(): Promise<void> {
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
   await app.register(wsRoutes);
   await registerIntegrations(app);
   await app.register(sessionRoutes);
+  await app.register(uploadRoutes);
 
   app.get('/api/health', async () => ({ ok: true, home: SF_HOME, ts: new Date().toISOString() }));
 

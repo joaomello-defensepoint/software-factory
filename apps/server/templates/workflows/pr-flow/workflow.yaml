@@ -1,0 +1,66 @@
+# Software Factory workflow: open the pull request for a ticket.
+# Started automatically when a card is dropped into the Pull Request column (board.prWorkflow in config.yaml).
+# Same template variables as the implementation workflows; {{steps.evidence.output}} carries your answer.
+
+id: pr-flow
+name: Pull request (evidence question → describe, push, open the PR)
+description: >
+  Asks you how to handle evidence, then one agent reads the ticket and the commits on the branch, writes the PR
+  description with the project's /ado-pr skill, pushes the branch and opens (or updates) the Azure DevOps PR,
+  attaching evidence when you asked for it. The card gets the PR link when the run finishes.
+version: 1
+kind: pr
+defaultModel: opus
+maxIterations: 1
+
+steps:
+  - id: evidence
+    name: Evidence
+    kind: ask
+    roles: []
+    prompt: >-
+      Opening the PR for {{ticket.key}} ({{ticket.title}}). How should evidence be handled?
+      Pick an option, or type the paths of screenshots/files to attach (one per line).
+    options:
+      - label: No evidence needed
+        description: Open the PR with the description only
+      - label: Capture evidence
+        description: Run the Playwright evidence flow (/ado-pr-evidence) and embed the screenshots in the PR
+      - label: Attach my files
+        description: Type the file paths in the box below instead of picking this
+
+  - id: open-pr
+    name: Describe, push and open the PR
+    kind: agent
+    roles: [pr-author]
+    maxTurns: 150
+    prompt: |
+      ## Ticket {{ticket.key}}: {{ticket.title}}
+      {{ticket.url}}
+
+      {{ticket.description}}
+
+      ## Branch
+      You are in the ticket's worktree `{{project.worktree}}` on branch `{{project.branch}}`; the target branch is `{{project.baseBranch}}`.
+      Changes on the branch vs the target:
+      {{diffStat}}
+
+      {{#if notes}}
+      ## Notes from the human
+      {{notes}}
+      {{/if}}
+
+      ## Evidence decision (the human's answer)
+      {{steps.evidence.output}}
+
+      ## What to do
+      1. Read the ticket above and `git log {{project.baseBranch}}..HEAD` so the description reflects every commit.
+         If there are uncommitted changes, commit them first with a message starting with `{{ticket.key}}`.
+      2. Interpret the evidence decision:
+         - "No evidence needed" → run `/ado-pr --post`.
+         - "Capture evidence" → run `/ado-pr --post --evidence`.
+         - Anything else is a list of file paths → run `/ado-pr --post`, then upload each listed file as a PR attachment
+           (the same ADO attachments API the /ado-pr skill uses) and embed them in the 📸 Evidence section of the PR description.
+           If a path does not exist, say so in your final summary instead of inventing evidence.
+      3. Make sure the PR title starts with `{{ticket.key}}` and the description links {{ticket.url}}.
+      4. Finish with: the PR URL on its own line, whether it is draft or published, and anything you could not do.

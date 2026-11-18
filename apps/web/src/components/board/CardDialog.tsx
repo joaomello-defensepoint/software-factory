@@ -53,6 +53,7 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
   const open = useMutation({ mutationFn: () => api.post<{ ok: boolean; message: string }>(`/api/cards/${id}/open`), onSuccess: (r) => { (r.ok ? setNotice : setError)(r.message); invalidate(); }, onError: fail });
   const ensureWt = useMutation({ mutationFn: () => api.post<{ message: string }>(`/api/cards/${id}/worktree`), onSuccess: (r) => { setNotice(r.message); invalidate(); }, onError: fail });
   const removeWt = useMutation({ mutationFn: () => api.del<{ ok: boolean; message: string }>(`/api/cards/${id}/worktree`, {}), onSuccess: (r) => { (r.ok ? setNotice : setError)(r.message); invalidate(); }, onError: fail });
+  const takeOver = useMutation({ mutationFn: () => api.post<{ id: string }>(`/api/cards/${id}/chat`), onSuccess: (s) => { location.hash = `sessions/${s.id}`; onClose(); }, onError: fail });
   const createPr = useMutation({ mutationFn: () => api.post<{ url: string }>(`/api/cards/${id}/pr`, { draft }), onSuccess: (pr) => { setNotice(`PR created: ${pr.url}`); invalidate(); }, onError: fail });
   const refreshPr = useMutation({ mutationFn: () => api.post<{ status: string; mergeStatus: string | null }>(`/api/cards/${id}/pr/refresh`), onSuccess: (pr) => { setNotice(`PR status: ${pr.status}${pr.mergeStatus ? ` (${pr.mergeStatus})` : ''}`); invalidate(); }, onError: fail });
   const transition = useMutation({ mutationFn: (t: string) => api.post(`/api/jira/transitions/${card!.key}`, { transition: t }), onSuccess: () => { invalidate(); qc.invalidateQueries({ queryKey: ['transitions'] }); }, onError: fail });
@@ -136,9 +137,14 @@ export function CardDialog({ card, projects, workflows, onClose }: { card: Card 
                   No worktree yet — "Open in VS Code" creates it under .claude/worktrees from the base branch.
                 </Typography>
               )}
-              <Button variant="outlined" onClick={() => open.mutate()} disabled={!card.projectId || open.isPending}>
-                {open.isPending ? 'Preparing worktree…' : 'Open in VS Code'}
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Button variant="outlined" onClick={() => open.mutate()} disabled={!card.projectId || open.isPending}>
+                  {open.isPending ? 'Preparing worktree…' : 'Open in VS Code'}
+                </Button>
+                <Button variant="outlined" color="secondary" onClick={() => takeOver.mutate()} disabled={!card.projectId || takeOver.isPending || running}>
+                  {takeOver.isPending ? 'Briefing the chat…' : 'Take over in chat'}
+                </Button>
+              </Box>
               <Box sx={{ display: 'flex', gap: 1 }}>
                 {!card.worktreePath && (
                   <Button size="small" onClick={() => ensureWt.mutate()} disabled={!card.projectId || ensureWt.isPending}>

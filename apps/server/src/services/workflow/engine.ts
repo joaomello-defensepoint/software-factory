@@ -13,6 +13,7 @@ import { existingDesignDocs, getProjectConfig, loadConfig, type ProjectConfig } 
 import { git, run as runShell } from '../shell.js';
 import { ensureCardWorktree } from '../cardWorktree.js';
 import * as jira from '../jira.js';
+import * as ado from '../ado.js';
 import * as llama from '../llama.js';
 import { getWorkflow } from './definitions.js';
 import { markDelivered, notesBlock, undeliveredNotes } from '../notes.js';
@@ -54,7 +55,7 @@ export async function startRun(input: { cardId: string; workflowId: string; proj
   if (wt.isMain) throw new Error(`Branch ${wt.branch} is checked out in the main checkout of ${project.name}; switch it to another branch (or remove that checkout) so the factory can use a worktree`);
 
   const run = createRun({ cardId: card.id, workflowId: workflow.id, projectId: project.id, worktreePath: wt.path, branch: wt.branch, baseBranch });
-  updateCard(card.id, { runId: run.id, column: 'in_progress' });
+  updateCard(card.id, { runId: run.id, column: workflow.kind === 'pr' ? 'pull_request' : 'in_progress' });
   appendEvent(run.id, 'run_started', `Run started with workflow "${workflow.name}" in ${wt.path} (${wt.message})`);
 
   void execute(run.id, workflow, project, card).catch((e) => logger.error({ err: e, run: run.id }, 'run crashed'));
@@ -76,7 +77,7 @@ export async function resumeRun(runId: string): Promise<WorkflowRun> {
   if (!fs.existsSync(run.worktreePath)) throw new Error(`Worktree is gone: ${run.worktreePath}`);
   const startStep = run.currentStep && workflow.steps.some((s) => s.id === run.currentStep) ? run.currentStep : workflow.steps[0].id;
   updateRun(runId, { status: 'queued', error: null, finishedAt: null, currentStep: startStep });
-  updateCard(card.id, { runId, column: 'in_progress' });
+  updateCard(card.id, { runId, column: workflow.kind === 'pr' ? 'pull_request' : 'in_progress' });
   appendEvent(runId, 'run_started', `Resuming run at step "${startStep}" (iteration ${run.iteration}); role sessions continue where they stopped`);
   void execute(runId, workflow, project, card, { startStep, resumed: true }).catch((e) => logger.error({ err: e, run: runId }, 'resumed run crashed'));
   return getRun(runId)!;
@@ -93,7 +94,7 @@ export function cancelRun(runId: string): boolean {
 
 interface StepContext {
   ticket: { key: string; title: string; description: string; url: string; type: string };
-  project: { name: string; path: string; baseBranch: string; designDocs: string; worktree: string };
+  project: { name: string; path: string; baseBranch: string; branch: string; designDocs: string; worktree: string };
   brain: string;
   diff: string;
   diffStat: string;
@@ -116,7 +117,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
   /** While resuming: the first step executed continues each role's previous session instead of starting fresh. */
   let resumeNext = !!opts.resumed;
   updateRun(runId, { status: 'running' });
-  await moveTrackerToInProgress(card, runId);
+  if (workflow.kind !== 'pr') await moveTrackerToInProgress(card, runId);
 
   const mcpServers = readProjectMcpServers(project.path);
   const designDocs = existingDesignDocs(project, run.worktreePath);
@@ -134,6 +135,7 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
       baseBranch: run.baseBranch,
       designDocs: designDocs.length ? designDocs.map((d) => `- ${d}`).join('\n') : '- (no design docs configured for this project)',
       worktree: run.worktreePath,
+      branch: run.branch,
     },
     brain,
     diff: '',
@@ -375,6 +377,19 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
           appendEvent(runId, 'log', 'Stopped at gate by the human', { step: step.id });
           break;
         }
+      } else if (step.kind === 'ask') {
+        // A question for the human whose answer (an option or free text) feeds later steps as {{steps.<id>.output}}.
+        updateRun(runId, { status: 'waiting_human' });
+        const options = (step.options?.length ? step.options : [{ label: 'Continue', description: '' }]).map((o) => ({ label: o.label, description: o.description || '' }));
+        appendEvent(runId, 'human_request', `Question for you: ${renderTemplate(step.prompt || step.name, ctx as any).slice(0, 300)}`, { step: step.id });
+        const { answer } = askHuman({ runId, cardId: card.id, step: step.id, role: null, kind: 'question', questions: [{ question: renderTemplate(step.prompt || step.name, ctx as any), header: step.name.slice(0, 12), options, multiSelect: false }], signal: ac.signal });
+        const answers = await answer;
+        updateRun(runId, { status: 'running' });
+        if (!answers) throw new Error(`Question "${step.name}" was dismissed`);
+        const value = Object.values(answers)[0] || '';
+        appendEvent(runId, 'human_answer', `Human answered: ${value}`, { step: step.id, data: answers });
+        state.outputs[step.id] = value;
+        saveRunState(runId, state);
       }
       appendEvent(runId, 'step_finished', `Step "${step.name}" finished`, { step: step.id });
       resumeNext = false;
@@ -384,9 +399,15 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
     const last = state.outputs[workflow.steps.find((s) => s.kind === 'decision')?.id || ''] || state.outputs[workflow.steps[0].id] || '';
     const summary = `${decided ? 'Maestro decision recorded. ' : ''}${last}`.slice(0, 8000);
     updateRun(runId, { status: 'succeeded', finishedAt: nowIso(), summary, currentStep: null, costUsd });
-    updateCard(card.id, { column: 'human_review' });
-    appendEvent(runId, 'run_finished', `Run finished — card moved to Human Review (cost ≈ $${costUsd.toFixed(2)})`);
-    toast('success', `${card.key || card.title}: workflow finished, ready for your review`);
+    if (workflow.kind === 'pr') {
+      const pr = await recordPullRequest(card, project, run.branch, runId);
+      appendEvent(runId, 'run_finished', `Run finished — ${pr ? `PR ${pr.url}` : 'no open PR found for this branch'} (cost ≈ $${costUsd.toFixed(2)})`);
+      toast(pr ? 'success' : 'warning', `${card.key || card.title}: ${pr ? `pull request ready: ${pr.url}` : 'PR workflow finished but no open PR was found for the branch'}`);
+    } else {
+      updateCard(card.id, { column: 'human_review' });
+      appendEvent(runId, 'run_finished', `Run finished — card moved to Human Review (cost ≈ $${costUsd.toFixed(2)})`);
+      toast('success', `${card.key || card.title}: workflow finished, ready for your review`);
+    }
   } catch (e: any) {
     const cancelled = ac.signal.aborted || /cancelled|aborted/i.test(String(e?.message));
     const msg = cancelled ? 'Cancelled by the user' : String(e?.message || e);
@@ -396,6 +417,27 @@ async function execute(runId: string, workflow: WorkflowDefinition, project: Pro
   } finally {
     active.delete(runId);
     hub.broadcast({ type: 'cards.changed' });
+  }
+}
+
+/** After a PR workflow: find the PR the agent opened for the branch, pin it on the card and move the tracker along. */
+async function recordPullRequest(card: Card, project: ProjectConfig, branch: string, runId: string): Promise<{ url: string; id: number } | null> {
+  if (!project.ado) return null;
+  try {
+    const pr = await ado.findActivePr(project, branch);
+    if (!pr) return null;
+    updateCard(card.id, { prUrl: pr.url, prId: pr.id, column: 'pull_request' });
+    appendEvent(runId, 'log', `Pull request #${pr.id} ${pr.isDraft ? '(draft) ' : ''}${pr.url}`);
+    const transition = loadConfig().board.columnToJiraTransition.pull_request;
+    if (card.source === 'jira' && card.key && transition && !pr.isDraft && jira.jiraConfigured()) {
+      await jira.transitionIssue(card.key, transition);
+      jira.upsertIssueAsCard(await jira.getIssue(card.key));
+      appendEvent(runId, 'log', `Jira ${card.key} → ${transition}`);
+    }
+    return { url: pr.url, id: pr.id };
+  } catch (e) {
+    appendEvent(runId, 'log', `Could not look up the pull request: ${String((e as Error).message || e)}`);
+    return null;
   }
 }
 

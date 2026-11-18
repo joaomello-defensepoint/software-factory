@@ -119,7 +119,7 @@ export interface WorkflowRole {
   file?: string;
 }
 
-export type StepKind = 'agent' | 'debate' | 'decision' | 'gate' | 'shell';
+export type StepKind = 'agent' | 'debate' | 'decision' | 'gate' | 'ask' | 'shell';
 
 export interface WorkflowStep {
   id: string;
@@ -139,13 +139,20 @@ export interface WorkflowStep {
   resumeSession?: boolean;
   /** For "shell": command executed in the worktree. */
   command?: string;
+  /** For "ask": choices offered to the human (free text is always allowed). The answer becomes steps.<id>.output. */
+  options?: Array<{ label: string; description?: string }>;
 }
+
+/** What a workflow produces: an implementation (card lands in Human Review) or a pull request (card lands in Pull Request). */
+export type WorkflowKind = 'implement' | 'pr';
 
 export interface WorkflowDefinition {
   id: string;
   name: string;
   description: string;
   version: number;
+  /** Defaults to "implement". */
+  kind?: WorkflowKind;
   defaultModel: string;
   /** How many times the maestro may send work back to the implementer. */
   maxIterations: number;

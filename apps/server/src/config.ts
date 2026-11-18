@@ -15,6 +15,7 @@ const home = os.homedir();
 export const SF_HOME = process.env.SF_HOME || path.join(home, '.claude', 'software-factory');
 export const WORKFLOWS_DIR = path.join(SF_HOME, 'workflows');
 export const LOGS_DIR = path.join(SF_HOME, 'logs');
+export const UPLOADS_DIR = path.join(SF_HOME, 'uploads');
 export const DB_PATH = path.join(SF_HOME, 'factory.db');
 export const CONFIG_PATH = path.join(SF_HOME, 'config.yaml');
 export const CLAUDE_HOME = path.join(home, '.claude');
@@ -58,7 +59,7 @@ export const env = {
 };
 
 export function ensureDirs(): void {
-  for (const d of [SF_HOME, WORKFLOWS_DIR, LOGS_DIR]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [SF_HOME, WORKFLOWS_DIR, LOGS_DIR, UPLOADS_DIR]) fs.mkdirSync(d, { recursive: true });
 }
 
 /** Reads the env block of a user-level MCP server from ~/.claude.json (e.g. the Llama API key) without exposing the file elsewhere. */

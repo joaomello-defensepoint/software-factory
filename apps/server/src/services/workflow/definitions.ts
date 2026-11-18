@@ -62,6 +62,7 @@ export function loadWorkflow(dir: string): WorkflowDefinition {
     maxTurns: s.maxTurns,
     resumeSession: !!s.resumeSession,
     command: s.command,
+    options: Array.isArray(s.options) ? s.options.map((o: any) => (typeof o === 'string' ? { label: o } : { label: String(o.label), description: o.description ? String(o.description) : undefined })) : undefined,
   }));
   return {
     id: raw.id || path.basename(dir),
@@ -72,6 +73,7 @@ export function loadWorkflow(dir: string): WorkflowDefinition {
     maxIterations: Number(raw.maxIterations || 3),
     roles,
     steps,
+    kind: raw.kind === 'pr' ? 'pr' : 'implement',
     dir,
   };
 }

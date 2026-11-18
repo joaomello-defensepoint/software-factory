@@ -3,7 +3,8 @@
 # Roles are Claude Code agent files (frontmatter + markdown prompt) in ./roles.
 # Prompts may use {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.url}},
 # {{project.name}}, {{project.baseBranch}}, {{project.designDocs}}, {{brain}}, {{diff}}, {{diffStat}},
-# {{iteration}}, {{feedback}}, {{priorWork}} (uncommitted changes found when the run started) and {{steps.<stepId>.output}}.
+# {{project.branch}}, {{project.worktree}}, {{notes}}, {{iteration}}, {{feedback}}, {{priorWork}} (uncommitted changes found when the run
+# started) and {{steps.<stepId>.output}}. Step kinds: agent, debate, decision, gate, ask (question whose answer feeds later steps), shell.
 
 id: maestro-loop
 name: Maestro loop (implement → review → devil's advocates → decide)

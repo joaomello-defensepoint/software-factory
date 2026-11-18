@@ -64,6 +64,7 @@ export function BoardPage() {
     return parts.join(' · ');
   };
   const archive = useMutation({ mutationFn: () => api.post<{ archived: number }>('/api/cards/archive-done'), onSuccess: (r) => setMessage({ ok: true, text: `${r.archived} card(s) archived` }) });
+  const takeOver = useMutation({ mutationFn: (card: Card) => api.post<{ id: string }>(`/api/cards/${card.id}/chat`), onSuccess: (s) => { location.hash = `sessions/${s.id}`; }, onError: (e: Error) => setMessage({ ok: false, text: e.message }) });
   const openVsCode = useMutation({ mutationFn: (card: Card) => api.post<{ ok: boolean; message: string }>(`/api/cards/${card.id}/open`), onSuccess: (r) => setMessage({ ok: r.ok, text: r.message }), onError: (e: Error) => setMessage({ ok: false, text: e.message }) });
   const archived = useQuery({ queryKey: ['cards', 'archived'], queryFn: () => api.get<Card[]>('/api/cards?archived=1'), enabled: archivedOpen });
   const restore = useMutation({ mutationFn: (id: string) => api.post(`/api/cards/${id}/restore`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['cards'] }); } });
@@ -159,6 +160,7 @@ export function BoardPage() {
               projects={projectMap}
               onOpen={(c) => setSelectedId(c.id)}
               onOpenVsCode={(c) => openVsCode.mutate(c)}
+              onTakeOver={(c) => { setMessage({ ok: true, text: `${c.key || c.title}: preparing the worktree and briefing the chat…` }); takeOver.mutate(c); }}
               extra={
                 col === 'done' ? (
                   <Tooltip title="Move everything in Done to the archive">

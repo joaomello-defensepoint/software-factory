@@ -65,6 +65,22 @@ implement ──► review ──► challenge (2 advocates, debate) ──► d
 - **Drop a card into In Progress** to start `board.defaultWorkflow` (`config.yaml`; `autoStart: false`
   disables it). The card needs a project; the base branch defaults to the project's first one.
   Dragging the card out of In Progress cancels the run.
+- **Take over in a chat** (speech-bubble icon on the card, or the button in the card dialog) opens an interactive
+  session in the ticket's worktree with the same brief the workflow roles had: ticket, design docs, second-brain
+  pack, your notes, the last run's summary and the diff stat. Use it when the workflow implemented most of the
+  ticket and you want to finish it by hand with an agent. The session is linked to the card.
+- **Pull request workflow**: dropping a card into Pull Request starts `board.prWorkflow` (default `pr-flow`,
+  empty disables). It first asks you in the Requests tab how to handle evidence (none, capture with
+  `/ado-pr-evidence`, or type the paths of files to attach), then one agent reads the ticket and the commits,
+  writes the description with `/ado-pr`, pushes and opens the PR. When the run finishes the card gets the PR
+  link and Jira moves to Ready for Code Review (published PRs only). The manual "Create PR" button remains.
+- **Step kind `ask`**: a question for the human with `options` (free text always allowed); the answer is
+  available to later steps as `{{steps.<id>.output}}`. Workflows declare `kind: pr` to land in Pull Request
+  instead of Human Review when they finish.
+- **Attachments in chats**: drop, paste or pick images/files in the composer. They are stored under
+  `~/.claude/software-factory/uploads` and sent as `[image: /path]` lines; the agent opens them with Read.
+- **Connector tools in chats** (Jira/Confluence, Fathom, Llama, Playwright) run without permission requests;
+  only Atlassian's destructive operations are blocked.
 - **Board sync** runs by itself every `board.syncIntervalMinutes` (default 10; `0` disables it) for Jira
   and Llama, starting shortly after the server boots. The Sync buttons force one; hover them for the last
   result or error. Jira's search index can lag a minute behind a freshly created issue, so a manual sync

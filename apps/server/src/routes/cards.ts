@@ -8,6 +8,7 @@ import { loadConfig } from '../services/projects.js';
 import { cancelRun, isRunActive, startRun } from '../services/workflow/engine.js';
 import { addNote, listNotes } from '../services/notes.js';
 import { toast } from '../events.js';
+import { startCardChat } from '../services/cardChat.js';
 
 const columnSchema = z.enum(COLUMNS);
 
@@ -70,11 +71,32 @@ export async function cardRoutes(app: FastifyInstance): Promise<void> {
         toast('info', `${card.key || card.title}: starting ${cfg.defaultWorkflow}…`);
         startRun({ cardId: card.id, workflowId: cfg.defaultWorkflow }).catch((e) => toast('error', `${card.key || card.title}: ${String(e.message || e)}`));
       }
+    } else if (body.column === 'pull_request' && before?.column !== 'pull_request' && cfg.prWorkflow && cfg.autoStart) {
+      if (active && card.runId) {
+        cancelRun(card.runId);
+        toast('info', `${card.key || card.title}: implementation workflow cancelled (card moved to Pull Request)`);
+      }
+      if (!card.projectId) toast('warning', `${card.key || card.title}: pick a project in the card to start the ${cfg.prWorkflow} workflow`);
+      else if (!card.worktreePath) toast('warning', `${card.key || card.title}: no worktree yet, nothing to open a PR from`);
+      else {
+        toast('info', `${card.key || card.title}: starting ${cfg.prWorkflow}…`);
+        // Give the cancelled run a moment to release the card before the PR run claims it.
+        setTimeout(() => startRun({ cardId: card.id, workflowId: cfg.prWorkflow }).catch((e) => toast('error', `${card.key || card.title}: ${String(e.message || e)}`)), active ? 1500 : 0);
+      }
     } else if (body.column !== 'in_progress' && active && card.runId) {
       cancelRun(card.runId);
-      toast('info', `${card.key || card.title}: workflow cancelled (card left In Progress)`);
+      toast('info', `${card.key || card.title}: workflow cancelled (card left ${before?.column === 'pull_request' ? 'Pull Request' : 'In Progress'})`);
     }
     return card;
+  });
+
+  /** Take over: an interactive chat in the card's worktree, briefed with the same ticket context the workflow had. */
+  app.post('/api/cards/:id/chat', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = z.object({ model: z.string().nullable().optional(), prompt: z.string().max(8000).optional() }).parse(req.body ?? {});
+    const card = getCard(id);
+    if (!card) return reply.code(404).send({ error: 'Not found' });
+    return startCardChat(card.id, { model: body.model ?? null, prompt: body.prompt });
   });
 
   /** Steering notes: reach the running agent at its next tool call and every later step's prompt. */

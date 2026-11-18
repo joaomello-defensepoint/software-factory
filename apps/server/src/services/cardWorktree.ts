@@ -5,6 +5,7 @@ import { getCard, updateCard } from './cards.js';
 import { getProjectConfig, type ProjectConfig } from './projects.js';
 import { createWorktree, findWorktree, removeWorktree, slugify } from './worktrees.js';
 import { hub } from '../events.js';
+import { run as runShell } from './shell.js';
 
 /** Branch for a card, following each repo's convention (overridable with branchTemplate / defectBranchTemplate). */
 export function branchNameFor(project: ProjectConfig, card: Card): string {
@@ -44,7 +45,10 @@ export async function ensureCardWorktree(cardId: string, opts: { projectId?: str
 
   if (card.worktreePath && card.branch && fs.existsSync(card.worktreePath)) {
     const isMain = path.resolve(card.worktreePath) === path.resolve(project.path);
-    return { ok: true, path: card.worktreePath, branch: card.branch, message: isMain ? `Branch ${card.branch} lives in the main checkout of ${project.name}` : `Using the card's worktree ${card.worktreePath}`, created: false, isMain };
+    // The branch may have been renamed or switched by hand inside the worktree; trust git over the card.
+    const actual = (await runShell('git', ['-C', card.worktreePath, 'branch', '--show-current'], { timeoutMs: 10_000 }).catch(() => null))?.stdout.trim() || card.branch;
+    if (actual !== card.branch) updateCard(card.id, { branch: actual }, false);
+    return { ok: true, path: card.worktreePath, branch: actual, message: isMain ? `Branch ${actual} lives in the main checkout of ${project.name}` : `Using the card's worktree ${card.worktreePath}`, created: false, isMain };
   }
 
   const branch = branchNameFor(project, card);

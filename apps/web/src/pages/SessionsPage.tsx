@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, List, ListItemButton, ListItemText, MenuItem, Paper, Select, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, IconButton, InputLabel, List, ListItemButton, ListItemText, MenuItem, Paper, Select, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
 import AddIcon from '@mui/icons-material/Add';
 import ReplayIcon from '@mui/icons-material/Replay';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import { Markdown } from '../components/common/Markdown';
 import type { ExternalSession, Project, SessionMessageLine, SessionSummary } from '@sf/shared';
 import { api } from '../api/client';
@@ -42,6 +43,42 @@ function parseHash(): { sessionId: string | null; cardId: string | null; runId: 
   return { sessionId: h.includes('/') ? rest || null : null, cardId: params.get('card'), runId: params.get('run') };
 }
 
+const IMAGE_LINE = /^\[image: (.+)\]$/;
+
+/** Plain text with [image: /path] lines shown inline (served back from the uploads folder). */
+function UserText({ text }: { text: string }) {
+  const lines = text.split('\n');
+  if (!lines.some((l) => IMAGE_LINE.test(l))) return <Box sx={{ whiteSpace: 'pre-wrap' }}>{text}</Box>;
+  return (
+    <Box sx={{ whiteSpace: 'pre-wrap' }}>
+      {lines.map((l, i) => {
+        const m = IMAGE_LINE.exec(l);
+        if (!m) return <span key={i}>{l}{i < lines.length - 1 ? '\n' : ''}</span>;
+        const name = m[1].split('/').pop() || '';
+        return (
+          <Box key={i} sx={{ my: 0.5 }}>
+            <a href={`/api/uploads/${encodeURIComponent(name)}`} target="_blank" rel="noreferrer">
+              <img src={`/api/uploads/${encodeURIComponent(name)}`} alt={name} style={{ maxWidth: 360, maxHeight: 240, borderRadius: 6, display: 'block' }} />
+            </a>
+            <Typography variant="caption" sx={{ opacity: 0.8 }}>{m[1]}</Typography>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
+/** Reads a File as base64 and stores it server-side; returns the absolute path the agent can open. */
+async function uploadFile(file: File): Promise<{ path: string; url: string; name: string }> {
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+  return api.post<{ path: string; url: string; name: string }>('/api/uploads', { name: file.name || 'pasted.png', dataBase64 });
+}
+
 function Transcript({ messages, pending }: { messages: SessionMessageLine[]; pending?: boolean }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -62,7 +99,7 @@ function Transcript({ messages, pending }: { messages: SessionMessageLine[]; pen
         return (
           <Box key={m.id} sx={{ flexShrink: 0, alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: mine ? '85%' : '100%', minWidth: 0, bgcolor: mine ? 'primary.dark' : 'background.default', color: mine ? 'primary.contrastText' : 'text.primary', borderRadius: 2, px: 1.5, py: 0.75, fontSize: 13 }}>
             {m.type === 'question' && <Chip label="question for you → Requests tab" color="warning" size="small" sx={{ mb: 0.5 }} />}
-            {mine ? <Box sx={{ whiteSpace: 'pre-wrap' }}>{m.text}</Box> : <Markdown>{m.text}</Markdown>}
+            {mine ? <UserText text={m.text} /> : <Markdown>{m.text}</Markdown>}
           </Box>
         );
       })}
@@ -84,6 +121,26 @@ export function SessionsPage() {
   const [externalSel, setExternalSel] = useState<ExternalSession | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  /** Uploads dropped/pasted/picked files and appends an [image: /path] line per file to the draft. */
+  const attach = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      const lines: string[] = [];
+      for (const f of files) {
+        const up = await uploadFile(f);
+        lines.push(`[${f.type.startsWith('image/') ? 'image' : 'file'}: ${up.path}]`);
+      }
+      setDraft((d) => `${d.trimEnd()}${d.trim() ? '\n' : ''}${lines.join('\n')}\n`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -249,15 +306,32 @@ export function SessionsPage() {
             )}
             <Transcript messages={liveMessages} pending={currentLive && current.status === 'running' && liveMessages.length > 0 && liveMessages[liveMessages.length - 1].type !== 'assistant'} />
             {current.interactive && currentLive && (
-              <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1 }}>
+              <Box
+                sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1, outline: dragOver ? '2px dashed' : 'none', outlineColor: 'primary.main', outlineOffset: -4 }}
+                onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragOver(true); } }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); void attach(Array.from(e.dataTransfer.files)); }}
+              >
+                <input ref={fileInput} type="file" multiple hidden onChange={(e) => { void attach(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
+                <Tooltip title="Attach files (or drop / paste images into the message box)">
+                  <span>
+                    <IconButton onClick={() => fileInput.current?.click()} disabled={uploading}>
+                      <AttachFileIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
                 <TextField
                   fullWidth
                   multiline
                   minRows={1}
                   maxRows={6}
-                  placeholder="Message (⌘/Ctrl+Enter to send)"
+                  placeholder={uploading ? 'Uploading…' : 'Message (⌘/Ctrl+Enter to send; drop or paste images here)'}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
+                  onPaste={(e) => {
+                    const files = Array.from(e.clipboardData.files ?? []);
+                    if (files.length) { e.preventDefault(); void attach(files); }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && draft.trim()) send.mutate();
                   }}
