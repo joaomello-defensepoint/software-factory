@@ -147,5 +147,4 @@ steps:
     roles: []
     prompt: ''
     command: >-
-      git add -A && git -c user.name='Software Factory' -c user.email='factory@local'
-      commit -q -m "{{ticket.key}} - {{ticket.title}} (software factory)" || true
+      git add -A && git commit -q -m "{{ticket.key}} - {{ticket.title}}" || true
