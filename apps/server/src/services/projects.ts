@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import type { Project } from '@sf/shared';
+import type { LoggerConfig, Project } from '@sf/shared';
 import { CONFIG_PATH, DEFAULT_PROJECTS_ROOT, DEFAULT_VAULT_ROOT, ensureDirs } from '../config.js';
 import { git } from './shell.js';
 import { listWorktrees } from './worktrees.js';
@@ -36,6 +36,8 @@ export interface FactoryConfig {
     /** Jira transition names to attempt when a card enters a column (optional). */
     columnToJiraTransition: Partial<Record<string, string>>;
   };
+  /** Daily Kimai time logger (Logger tab). */
+  logger: LoggerConfig;
 }
 
 const vault = (name: string): string => path.join(DEFAULT_VAULT_ROOT, name);
@@ -125,6 +127,16 @@ export function defaultConfig(): FactoryConfig {
       // Transition *names* (not target statuses) attempted when a card enters a column; best effort.
       columnToJiraTransition: { in_progress: 'In Progress', pull_request: 'Ready for Code Review' },
     },
+    logger: {
+      enabled: true,
+      time: '08:00',
+      days: [2, 3, 4, 5, 6], // Tuesday–Saturday, each logging the previous day
+      catchUp: true,
+      model: 'opus',
+      slackUserId: 'U095NNEUH98',
+      slackChannels: { C039TK0Q346: '#product-dev-qa', C0911MBFNSX: '#delta-techops', C0BC2P000RZ: '#eam-conversion', C0C1WK5HJF5: '#eam-v15' },
+      notifySlack: true,
+    },
   };
 }
 
@@ -140,7 +152,7 @@ export function loadConfig(): FactoryConfig {
   }
   const parsed = YAML.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as FactoryConfig;
   const base = defaultConfig();
-  cache = { ...base, ...parsed, board: { ...base.board, ...(parsed.board || {}) }, projects: parsed.projects?.length ? parsed.projects : base.projects };
+  cache = { ...base, ...parsed, board: { ...base.board, ...(parsed.board || {}) }, logger: { ...base.logger, ...(parsed.logger || {}) }, projects: parsed.projects?.length ? parsed.projects : base.projects };
   return cache;
 }
 

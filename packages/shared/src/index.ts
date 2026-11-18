@@ -259,7 +259,7 @@ export interface Note {
 
 // ---------- Sessions ----------
 
-export type SessionKind = 'workflow' | 'brain' | 'bridge' | 'chat';
+export type SessionKind = 'workflow' | 'brain' | 'bridge' | 'chat' | 'logger';
 export type SessionStatus = 'starting' | 'running' | 'waiting_human' | 'done' | 'failed' | 'cancelled' | 'interrupted';
 
 export interface SessionSummary {
@@ -395,7 +395,8 @@ export type ServerEvent =
   | { type: 'job.log'; jobId: string; line: string }
   | { type: 'job.done'; jobId: string; ok: boolean; message?: string }
   | { type: 'toast'; level: 'info' | 'success' | 'warning' | 'error'; message: string }
-  | { type: 'sync.changed'; source: 'jira' | 'llama'; running: boolean };
+  | { type: 'sync.changed'; source: 'jira' | 'llama'; running: boolean }
+  | { type: 'logger.changed'; run?: LoggerRun };
 
 export interface SyncState {
   running: boolean;
@@ -411,4 +412,72 @@ export interface IntegrationStatus {
   ado: { configured: boolean; orgUrl: string | null; loggedIn: boolean | null };
   llama: { configured: boolean; org: string | null; project: string | null; sync: SyncState };
   claude: { version: string | null };
+}
+
+// ---------- Time logger (Kimai) ----------
+
+export type LoggerTrigger = 'schedule' | 'catchup' | 'manual' | 'preview';
+export type LoggerRunStatus = 'running' | 'created' | 'previewed' | 'skipped_duplicate' | 'skipped_empty' | 'failed';
+
+export interface LoggerGathered {
+  commitTop: string[];
+  llamaLines: string[];
+  meetings: string[];
+  /** Candidate Slack discussions the user took part in, one line per thread ("#channel HH:MM name: text…"). */
+  slackCandidates: string[];
+  /** Lines the model picked for the [Slack] section. */
+  slackLines: string[];
+  summary: string | null;
+  warnings: string[];
+}
+
+export interface LoggerRun {
+  id: string;
+  /** Day being logged (America/Sao_Paulo). */
+  date: string;
+  trigger: LoggerTrigger;
+  dryRun: boolean;
+  status: LoggerRunStatus;
+  /** The single status line (CREATED: … / SKIPPED-… / ERROR: …), as the cloud routine reported it. */
+  statusLine: string | null;
+  description: string | null;
+  entryId: number | null;
+  sessionId: string | null;
+  costUsd: number;
+  gathered: LoggerGathered | null;
+  log: string[];
+  error: string | null;
+  notified: boolean;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface LoggerConfig {
+  enabled: boolean;
+  /** Local time HH:MM at which the scheduled run fires. */
+  time: string;
+  /** Days of week that fire (0 = Sunday … 6 = Saturday). Each run logs the previous day. */
+  days: number[];
+  /** Run on boot when a scheduled time was missed today (machine asleep or app closed). */
+  catchUp: boolean;
+  /** Model used to write the Summary line and pick Slack discussions. */
+  model: string;
+  /** Slack member id that receives the status DM and whose messages count as participation. */
+  slackUserId: string;
+  /** Channels to scan for discussions, id → #name. */
+  slackChannels: Record<string, string>;
+  notifySlack: boolean;
+}
+
+export interface LoggerState {
+  config: LoggerConfig;
+  /** Which secrets are present in logger.env (values never leave the server). */
+  secrets: Record<string, boolean>;
+  secretsPath: string;
+  adoViaAz: boolean;
+  running: boolean;
+  nextRunAt: string | null;
+  /** The date the next scheduled run will log. */
+  nextTargetDate: string | null;
+  lastRun: LoggerRun | null;
 }

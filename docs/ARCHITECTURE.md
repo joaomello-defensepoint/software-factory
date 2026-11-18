@@ -28,6 +28,11 @@ State lives outside the repo so it survives re-clones: `~/.claude/software-facto
 | `services/worktrees.ts`              | `git worktree` under `<repo>/.claude/worktrees/<name>` (always)                 |
 | `routes/ws.ts`                       | WebSocket: cards/runs/requests/jobs events + system stats every 2 s             |
 
+## Time logger
+
+`services/timelogger.ts` schedules and runs the daily Kimai entry (Logger tab); the deterministic scripts live in
+`apps/logger`, secrets in `~/.claude/software-factory/logger.env`. See `docs/LOGGER.md`.
+
 ## Board sync rules
 
 - Jira is the source of truth for **Backlog** and **Done** (status → column mapping in `config.yaml`).

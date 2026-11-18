@@ -8,6 +8,7 @@ import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import SettingsIcon from '@mui/icons-material/Settings';
 import TerminalIcon from '@mui/icons-material/Terminal';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 import type { HumanRequest, ServerEvent } from '@sf/shared';
 import { api } from './api/client';
 import { useConnection, useServerEvents } from './api/ws';
@@ -18,9 +19,10 @@ import { RequestsPage } from './pages/RequestsPage';
 import { SystemPage } from './pages/SystemPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SessionsPage } from './pages/SessionsPage';
+import { LoggerPage } from './pages/LoggerPage';
 import { formatBytes } from './components/common/format';
 
-const TABS = ['board', 'brain', 'workflows', 'sessions', 'requests', 'system', 'settings'] as const;
+const TABS = ['board', 'brain', 'workflows', 'sessions', 'logger', 'requests', 'system', 'settings'] as const;
 type TabId = (typeof TABS)[number];
 const tabFromHash = (): TabId => {
   const h = location.hash.replace('#', '').split(/[/?]/)[0] as TabId;
@@ -61,6 +63,7 @@ export function App() {
             <Tab value="brain" icon={<PsychologyIcon fontSize="small" />} iconPosition="start" label="Second Brain" />
             <Tab value="workflows" icon={<AccountTreeIcon fontSize="small" />} iconPosition="start" label="Workflows" />
             <Tab value="sessions" icon={<TerminalIcon fontSize="small" />} iconPosition="start" label="Sessions" />
+            <Tab value="logger" icon={<ScheduleIcon fontSize="small" />} iconPosition="start" label="Logger" />
             <Tab
               value="requests"
               icon={
@@ -97,6 +100,7 @@ export function App() {
         {tab === 'brain' && <SecondBrainPage />}
         {tab === 'workflows' && <WorkflowsPage />}
         {tab === 'sessions' && <SessionsPage />}
+        {tab === 'logger' && <LoggerPage />}
         {tab === 'requests' && <RequestsPage />}
         {tab === 'system' && <SystemPage />}
         {tab === 'settings' && <SettingsPage />}

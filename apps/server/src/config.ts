@@ -16,6 +16,12 @@ export const SF_HOME = process.env.SF_HOME || path.join(home, '.claude', 'softwa
 export const WORKFLOWS_DIR = path.join(SF_HOME, 'workflows');
 export const LOGS_DIR = path.join(SF_HOME, 'logs');
 export const UPLOADS_DIR = path.join(SF_HOME, 'uploads');
+/** Secrets for the time logger (ADO/Kimai/Llama/GCal/Slack), KEY=VALUE lines, chmod 600; never inside the repo. */
+export const LOGGER_ENV_PATH = path.join(SF_HOME, 'logger.env');
+/** Per-run working folders of the time logger (preview.json, desc.txt …). */
+export const LOGGER_RUNS_DIR = path.join(SF_HOME, 'logger');
+/** The deterministic logger scripts (lt.py, gcal_meetings.py, slack_context.py). */
+export const LOGGER_SCRIPTS_DIR = path.join(REPO_ROOT, 'apps', 'logger');
 export const DB_PATH = path.join(SF_HOME, 'factory.db');
 export const CONFIG_PATH = path.join(SF_HOME, 'config.yaml');
 export const CLAUDE_HOME = path.join(home, '.claude');
@@ -59,7 +65,7 @@ export const env = {
 };
 
 export function ensureDirs(): void {
-  for (const d of [SF_HOME, WORKFLOWS_DIR, LOGS_DIR, UPLOADS_DIR]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [SF_HOME, WORKFLOWS_DIR, LOGS_DIR, UPLOADS_DIR, LOGGER_RUNS_DIR]) fs.mkdirSync(d, { recursive: true });
 }
 
 /** Reads the env block of a user-level MCP server from ~/.claude.json (e.g. the Llama API key) without exposing the file elsewhere. */

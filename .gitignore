@@ -10,3 +10,7 @@ coverage/
 *.tsbuildinfo
 .vite/
 .playwright-mcp/
+
+# Logger secrets live in ~/.claude/software-factory/logger.env, never here
+apps/logger/variables
+apps/logger/*.env

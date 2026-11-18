@@ -22,6 +22,8 @@ import { abortAllChats, failStaleSessions } from './services/sessions.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { uploadRoutes } from './routes/uploads.js';
 import { startAutoSync, stopAutoSync } from './services/autosync.js';
+import { loggerRoutes } from './routes/logger.js';
+import { startLoggerSchedule, stopLoggerSchedule } from './services/timelogger.js';
 
 async function main(): Promise<void> {
   ensureDirs();
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
   await registerIntegrations(app);
   await app.register(sessionRoutes);
   await app.register(uploadRoutes);
+  await app.register(loggerRoutes);
 
   app.get('/api/health', async () => ({ ok: true, home: SF_HOME, ts: new Date().toISOString() }));
 
@@ -67,12 +70,14 @@ async function main(): Promise<void> {
   await app.listen({ port: PORT, host: '127.0.0.1' });
   logger.info(`Software Factory server listening on http://127.0.0.1:${PORT} (state in ${SF_HOME})`);
   startAutoSync();
+  startLoggerSchedule();
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     stopAutoSync();
+    stopLoggerSchedule();
     const aborted = abortAllRuns() + abortAllChats();
     logger.info(`${signal}: shutting down${aborted ? ` (aborting ${aborted} running workflow session(s))` : ''}`);
     await closeLlama().catch(() => undefined);

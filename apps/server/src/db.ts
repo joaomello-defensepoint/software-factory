@@ -135,6 +135,26 @@ function migrate(d: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_session_messages ON session_messages(session_id, id);
 
+    CREATE TABLE IF NOT EXISTS logger_runs (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      dry_run INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      status_line TEXT,
+      description TEXT,
+      entry_id INTEGER,
+      session_id TEXT,
+      cost_usd REAL NOT NULL DEFAULT 0,
+      gathered TEXT,
+      log TEXT NOT NULL DEFAULT '[]',
+      error TEXT,
+      notified INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_logger_runs_date ON logger_runs(date, started_at);
+
     CREATE TABLE IF NOT EXISTS kv (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL

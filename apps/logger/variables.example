@@ -1,0 +1,6 @@
+# Copy to ~/.claude/software-factory/logger.env (chmod 600). Never commit real values.
+ADO_PAT=
+KIMAI_TOKEN=
+LLAMA_API_KEY=
+GCAL_SA_KEY='{"type": "service_account", ...}'
+SLACK_BOT_TOKEN=xoxb-...
